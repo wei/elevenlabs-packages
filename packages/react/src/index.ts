@@ -1,0 +1,92 @@
+import { useEffect, useRef, useState } from "react";
+import {
+  Conversation,
+  Mode,
+  SessionConfig,
+  Callbacks,
+  Options,
+  Status,
+  ClientToolsConfig,
+} from "@11labs/client";
+export type { Role, Mode, Status } from "@11labs/client";
+
+export type HookOptions = Partial<
+  SessionConfig & HookCallbacks & ClientToolsConfig
+>;
+export type HookCallbacks = Pick<
+  Callbacks,
+  | "onConnect"
+  | "onDisconnect"
+  | "onError"
+  | "onMessage"
+  | "onDebug"
+  | "onUnhandledClientToolCall"
+>;
+
+export function useConversation<T extends HookOptions>(defaultOptions?: T) {
+  const conversationRef = useRef<Conversation | null>(null);
+  const lockRef = useRef<Promise<Conversation> | null>(null);
+  const [status, setStatus] = useState<Status>("disconnected");
+  const [mode, setMode] = useState<Mode>("listening");
+
+  useEffect(() => {
+    return () => {
+      conversationRef.current?.endSession();
+    };
+  }, []);
+
+  return {
+    startSession: (async (options?: HookOptions) => {
+      if (conversationRef.current) {
+        return conversationRef.current.getId();
+      }
+
+      if (lockRef.current) {
+        const conversation = await lockRef.current;
+        return conversation.getId();
+      }
+
+      try {
+        lockRef.current = Conversation.startSession({
+          ...(defaultOptions ?? {}),
+          ...(options ?? {}),
+          onModeChange: ({ mode }) => {
+            setMode(mode);
+          },
+          onStatusChange: ({ status }) => {
+            setStatus(status);
+          },
+        } as Options);
+
+        conversationRef.current = await lockRef.current;
+        return conversationRef.current.getId();
+      } finally {
+        lockRef.current = null;
+      }
+    }) as T extends SessionConfig
+      ? (options?: HookOptions) => Promise<string>
+      : (options: SessionConfig & HookOptions) => Promise<string>,
+    endSession: async () => {
+      const conversation = conversationRef.current;
+      conversationRef.current = null;
+      await conversation?.endSession();
+    },
+    setVolume: ({ volume }: { volume: number }) => {
+      conversationRef.current?.setVolume({ volume });
+    },
+    getInputByteFrequencyData: () => {
+      return conversationRef.current?.getInputByteFrequencyData();
+    },
+    getOutputByteFrequencyData: () => {
+      return conversationRef.current?.getOutputByteFrequencyData();
+    },
+    getInputVolume: () => {
+      return conversationRef.current?.getInputVolume() ?? 0;
+    },
+    getOutputVolume: () => {
+      return conversationRef.current?.getOutputVolume() ?? 0;
+    },
+    status,
+    isSpeaking: mode === "speaking",
+  };
+}
