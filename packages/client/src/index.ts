@@ -36,6 +36,7 @@ export type Callbacks = {
   onMessage: (props: { message: string; source: Role }) => void;
   onModeChange: (prop: { mode: Mode }) => void;
   onStatusChange: (prop: { status: Status }) => void;
+  onCanSendFeedbackChange: (prop: { canSendFeedback: boolean }) => void;
   onUnhandledClientToolCall?: (
     params: ClientToolCallEvent["client_tool_call"]
   ) => void;
@@ -52,7 +53,10 @@ const defaultCallbacks: Callbacks = {
   onMessage: () => {},
   onModeChange: () => {},
   onStatusChange: () => {},
+  onCanSendFeedbackChange: () => {},
 };
+
+const HTTPS_API_ORIGIN = "https://api.elevenlabs.io";
 
 export class Conversation {
   public static async startSession(
@@ -65,6 +69,7 @@ export class Conversation {
     };
 
     fullOptions.onStatusChange({ status: "connecting" });
+    fullOptions.onCanSendFeedbackChange({ canSendFeedback: false });
 
     let input: Input | null = null;
     let connection: Connection | null = null;
@@ -91,6 +96,9 @@ export class Conversation {
   private inputFrequencyData?: Uint8Array;
   private outputFrequencyData?: Uint8Array;
   private volume: number = 1;
+  private currentEventId: number = 1;
+  private lastFeedbackEventId: number = 1;
+  private canSendFeedback: boolean = false;
 
   private constructor(
     private readonly options: Options,
@@ -139,6 +147,14 @@ export class Conversation {
     if (status !== this.status) {
       this.status = status;
       this.options.onStatusChange({ status });
+    }
+  };
+
+  private updateCanSendFeedback = () => {
+    const canSendFeedback = this.currentEventId !== this.lastFeedbackEventId;
+    if (this.canSendFeedback !== canSendFeedback) {
+      this.canSendFeedback = canSendFeedback;
+      this.options.onCanSendFeedbackChange({ canSendFeedback });
     }
   };
 
@@ -247,10 +263,10 @@ export class Conversation {
         }
 
         case "audio": {
-          if (
-            this.lastInterruptTimestamp <= parsedEvent.audio_event.event_id!
-          ) {
+          if (this.lastInterruptTimestamp <= parsedEvent.audio_event.event_id) {
             this.addAudioBase64Chunk(parsedEvent.audio_event.audio_base_64);
+            this.currentEventId = parsedEvent.audio_event.event_id;
+            this.updateCanSendFeedback();
             this.updateMode("speaking");
           }
           break;
@@ -375,4 +391,39 @@ export class Conversation {
   public getOutputVolume = () => {
     return this.calculateVolume(this.getOutputByteFrequencyData());
   };
+
+  public sendFeedback = (like: boolean) => {
+    if (!this.canSendFeedback) {
+      console.warn(
+        this.lastFeedbackEventId === 0
+          ? "Cannot send feedback: the conversation has not started yet."
+          : "Cannot send feedback: feedback has already been sent for the current response."
+      );
+      return;
+    }
+
+    this.connection.sendMessage({
+      type: "feedback",
+      score: like ? "like" : "dislike",
+      event_id: this.currentEventId,
+    });
+    this.lastFeedbackEventId = this.currentEventId;
+    this.updateCanSendFeedback();
+  };
+}
+
+export function postOverallFeedback(
+  conversationId: string,
+  like: boolean,
+  origin: string = HTTPS_API_ORIGIN
+) {
+  return fetch(`${origin}/v1/convai/conversations/${conversationId}/feedback`, {
+    method: "POST",
+    body: JSON.stringify({
+      feedback: like ? "like" : "dislike",
+    }),
+    headers: {
+      "Content-Type": "application/json",
+    },
+  });
 }
