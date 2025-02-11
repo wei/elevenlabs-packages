@@ -8,6 +8,7 @@ import {
   SessionConfig,
 } from "./utils/connection";
 import { ClientToolCallEvent, IncomingSocketEvent } from "./utils/events";
+import { isAndroidDevice, isIosDevice } from "./utils/compatibility";
 
 export type { IncomingSocketEvent } from "./utils/events";
 export type { SessionConfig, DisconnectionDetails } from "./utils/connection";
@@ -78,14 +79,30 @@ export class Conversation {
     let input: Input | null = null;
     let connection: Connection | null = null;
     let output: Output | null = null;
+    let preliminaryInputStream: MediaStream | null = null;
 
     try {
       // some browsers won't allow calling getSupportedConstraints or enumerateDevices
       // before getting approval for microphone access
-      const preliminaryInputStream = await navigator.mediaDevices.getUserMedia({
+      preliminaryInputStream = await navigator.mediaDevices.getUserMedia({
         audio: true,
       });
-      preliminaryInputStream?.getTracks().forEach(track => track.stop());
+
+      const delayConfig = options.connectionDelay ?? {
+        default: 0,
+        // Give the Android AudioManager enough time to switch to the correct audio mode
+        android: 3_000,
+      };
+      let delay = delayConfig.default;
+      if (isAndroidDevice()) {
+        delay = delayConfig.android ?? delay;
+      } else if (isIosDevice()) {
+        delay = delayConfig.ios ?? delay;
+      }
+
+      if (delay > 0) {
+        await new Promise(resolve => setTimeout(resolve, delay));
+      }
 
       connection = await Connection.create(options);
       [input, output] = await Promise.all([
@@ -96,9 +113,13 @@ export class Conversation {
         Output.create(connection.outputFormat),
       ]);
 
+      preliminaryInputStream?.getTracks().forEach(track => track.stop());
+      preliminaryInputStream = null;
+
       return new Conversation(fullOptions, connection, input, output);
     } catch (error) {
       fullOptions.onStatusChange({ status: "disconnected" });
+      preliminaryInputStream?.getTracks().forEach(track => track.stop());
       connection?.close();
       await input?.close();
       await output?.close();
