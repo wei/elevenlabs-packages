@@ -203,7 +203,26 @@ sendFeedback(false); // negative feedback
 A method to set the output volume of the conversation. Accepts object with volume field between 0 and 1.
 
 ```js
-await conversation.setVolume({ volume: 0.5 });
+const [volume, setVolume] = useState(0.5);
+const conversation = useConversation({ volume });
+
+// Set the volume
+setVolume(0.5);
+```
+
+##### muteMic
+
+A method to mute/unmute the microphone.
+
+```js
+const [micMuted, setMicMuted] = useState(false);
+const conversation = useConversation({ micMuted });
+
+// Mute the microphone
+setMicMuted(true);
+
+// Unmute the microphone
+setMicMuted(false);
 ```
 
 ##### status
