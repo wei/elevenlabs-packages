@@ -197,7 +197,7 @@ export class Conversation {
           this.lastInterruptTimestamp = parsedEvent.interruption_event.event_id;
         }
         this.fadeOutAudio();
-        break;
+        return;
       }
 
       case "agent_response": {
@@ -205,7 +205,7 @@ export class Conversation {
           source: "ai",
           message: parsedEvent.agent_response_event.agent_response,
         });
-        break;
+        return;
       }
 
       case "user_transcript": {
@@ -213,7 +213,7 @@ export class Conversation {
           source: "user",
           message: parsedEvent.user_transcription_event.user_transcript,
         });
-        break;
+        return;
       }
 
       case "internal_tentative_agent_response": {
@@ -223,10 +223,11 @@ export class Conversation {
             parsedEvent.tentative_agent_response_internal_event
               .tentative_agent_response,
         });
-        break;
+        return;
       }
 
       case "client_tool_call": {
+        console.info("Received client tool call request", parsedEvent.client_tool_call);
         if (
           this.options.clientTools.hasOwnProperty(
             parsedEvent.client_tool_call.tool_name
@@ -260,30 +261,28 @@ export class Conversation {
               is_error: true,
             });
           }
-
-          break;
-        }
-
-        if (this.options.onUnhandledClientToolCall) {
-          this.options.onUnhandledClientToolCall(parsedEvent.client_tool_call);
-
-          break;
-        }
-
-        this.onError(
-          `Client tool with name ${parsedEvent.client_tool_call.tool_name} is not defined on client`,
-          {
-            clientToolName: parsedEvent.client_tool_call.tool_name,
+        } else {
+          if (this.options.onUnhandledClientToolCall) {
+            this.options.onUnhandledClientToolCall(parsedEvent.client_tool_call);
+  
+            return;
           }
-        );
-        this.connection.sendMessage({
-          type: "client_tool_result",
-          tool_call_id: parsedEvent.client_tool_call.tool_call_id,
-          result: `Client tool with name ${parsedEvent.client_tool_call.tool_name} is not defined on client`,
-          is_error: true,
-        });
+  
+          this.onError(
+            `Client tool with name ${parsedEvent.client_tool_call.tool_name} is not defined on client`,
+            {
+              clientToolName: parsedEvent.client_tool_call.tool_name,
+            }
+          );
+          this.connection.sendMessage({
+            type: "client_tool_result",
+            tool_call_id: parsedEvent.client_tool_call.tool_call_id,
+            result: `Client tool with name ${parsedEvent.client_tool_call.tool_name} is not defined on client`,
+            is_error: true,
+          });
+        }
 
-        break;
+        return;
       }
 
       case "audio": {
@@ -293,7 +292,7 @@ export class Conversation {
           this.updateCanSendFeedback();
           this.updateMode("speaking");
         }
-        break;
+        return;
       }
 
       case "ping": {
@@ -303,13 +302,13 @@ export class Conversation {
         });
         // parsedEvent.ping_event.ping_ms can be used on client side, for example
         // to warn if ping is too high that experience might be degraded.
-        break;
+        return;
       }
 
       // unhandled events are expected to be internal events
       default: {
         this.options.onDebug(parsedEvent);
-        break;
+        return;
       }
     }
   };
