@@ -12,7 +12,11 @@ import { isAndroidDevice, isIosDevice } from "./utils/compatibility";
 
 export type { InputConfig } from "./utils/input";
 export type { IncomingSocketEvent } from "./utils/events";
-export type { SessionConfig, DisconnectionDetails, Language } from "./utils/connection";
+export type {
+  SessionConfig,
+  DisconnectionDetails,
+  Language,
+} from "./utils/connection";
 export type Role = "user" | "ai";
 export type Mode = "speaking" | "listening";
 export type Status =
@@ -84,6 +88,15 @@ export class Conversation {
     let output: Output | null = null;
     let preliminaryInputStream: MediaStream | null = null;
 
+    let wakeLock: WakeLockSentinel | null = null;
+    if (options.useWakeLock ?? true) {
+      try {
+        wakeLock = await navigator.wakeLock.request("screen");
+      } catch (e) {
+        // Wake Lock is not required for the conversation to work
+      }
+    }
+
     try {
       // some browsers won't allow calling getSupportedConstraints or enumerateDevices
       // before getting approval for microphone access
@@ -119,13 +132,17 @@ export class Conversation {
       preliminaryInputStream?.getTracks().forEach(track => track.stop());
       preliminaryInputStream = null;
 
-      return new Conversation(fullOptions, connection, input, output);
+      return new Conversation(fullOptions, connection, input, output, wakeLock);
     } catch (error) {
       fullOptions.onStatusChange({ status: "disconnected" });
       preliminaryInputStream?.getTracks().forEach(track => track.stop());
       connection?.close();
       await input?.close();
       await output?.close();
+      try {
+        await wakeLock?.release();
+        wakeLock = null;
+      } catch (e) {}
       throw error;
     }
   }
@@ -144,7 +161,8 @@ export class Conversation {
     private readonly options: Options,
     private readonly connection: Connection,
     public readonly input: Input,
-    public readonly output: Output
+    public readonly output: Output,
+    public wakeLock: WakeLockSentinel | null
   ) {
     this.options.onConnect({ conversationId: connection.conversationId });
 
@@ -161,6 +179,11 @@ export class Conversation {
   private endSessionWithDetails = async (details: DisconnectionDetails) => {
     if (this.status !== "connected" && this.status !== "connecting") return;
     this.updateStatus("disconnecting");
+
+    try {
+      await this.wakeLock?.release();
+      this.wakeLock = null;
+    } catch (e) {}
 
     this.connection.close();
     await this.input.close();
@@ -229,7 +252,6 @@ export class Conversation {
       }
 
       case "client_tool_call": {
-        console.info("Received client tool call request", parsedEvent.client_tool_call);
         if (
           this.options.clientTools.hasOwnProperty(
             parsedEvent.client_tool_call.tool_name
@@ -243,7 +265,10 @@ export class Conversation {
               "Client tool execution successful."; // default client-tool call response
 
             // The API expects result to be a string, so we need to convert it if it's not already a string
-            const formattedResult = typeof result === 'object' ? JSON.stringify(result) : String(result);
+            const formattedResult =
+              typeof result === "object"
+                ? JSON.stringify(result)
+                : String(result);
 
             this.connection.sendMessage({
               type: "client_tool_result",
@@ -268,11 +293,13 @@ export class Conversation {
           }
         } else {
           if (this.options.onUnhandledClientToolCall) {
-            this.options.onUnhandledClientToolCall(parsedEvent.client_tool_call);
-  
+            this.options.onUnhandledClientToolCall(
+              parsedEvent.client_tool_call
+            );
+
             return;
           }
-  
+
           this.onError(
             `Client tool with name ${parsedEvent.client_tool_call.tool_name} is not defined on client`,
             {
@@ -291,9 +318,8 @@ export class Conversation {
       }
 
       case "audio": {
-
         if (this.lastInterruptTimestamp <= parsedEvent.audio_event.event_id) {
-          this.options.onAudio(parsedEvent.audio_event.audio_base_64)
+          this.options.onAudio(parsedEvent.audio_event.audio_base_64);
           this.addAudioBase64Chunk(parsedEvent.audio_event.audio_base_64);
           this.currentEventId = parsedEvent.audio_event.event_id;
           this.updateCanSendFeedback();
@@ -398,7 +424,7 @@ export class Conversation {
 
   public setMicMuted = (isMuted: boolean) => {
     this.input.setMuted(isMuted);
-  }
+  };
 
   public getInputByteFrequencyData = () => {
     this.inputFrequencyData ??= new Uint8Array(
