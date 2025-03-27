@@ -134,9 +134,14 @@ export function useConversation<T extends HookOptions & ControlledState>(
     getId: () => {
       return conversationRef.current?.getId();
     },
+    sendContextualUpdate: (text: string) => {
+      conversationRef.current?.sendContextualUpdate(text);
+    },
     status,
     canSendFeedback,
     micMuted,
     isSpeaking: mode === "speaking",
   };
 }
+
+// const con = useConversation({agentId: ""})

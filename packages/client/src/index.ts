@@ -468,6 +468,13 @@ export class Conversation {
     this.lastFeedbackEventId = this.currentEventId;
     this.updateCanSendFeedback();
   };
+
+  public sendContextualUpdate = (text: string) => {
+    this.connection.sendMessage({
+      type: "contextual_update",
+      text,
+    });
+  };
 }
 
 export function postOverallFeedback(
