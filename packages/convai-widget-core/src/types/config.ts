@@ -77,11 +77,11 @@ export const DefaultTextContents = {
   connecting_status: "Connecting",
 
   input_label: "Text message input",
-  input_placeholder: "Or send a message",
+  input_placeholder: "Send a message",
 
   user_ended_conversation: "You ended the conversation",
   agent_ended_conversation: "The agent ended the conversation",
-  conversation_id: "Conversation ID",
+  conversation_id: "ID",
   error_occurred: "An error occurred",
   copy_id: "Copy ID",
 };
