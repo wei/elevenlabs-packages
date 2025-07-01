@@ -26,6 +26,10 @@ This library is primarily meant for development in vanilla JavaScript projects, 
 It is recommended to check whether your specific framework has it's own library.
 However, you can use this library in any JavaScript-based project.
 
+### Connection types
+
+A conversation can be started via one of two connection types: WebSockets (the default) or WebRTC.
+
 ### Initialize conversation
 
 First, initialize the Conversation instance:
@@ -48,38 +52,38 @@ try {
 
 #### Session configuration
 
-The options passed to `startSession` specifiy how the session is established. There are two ways to start a session:
+The options passed to `startSession` specifiy how the session is established. There are three ways to start a session:
 
-##### Using Agent ID
+##### Public agents
 
-Agent ID can be acquired through [ElevenLabs UI](https://elevenlabs.io/app/conversational-ai).
+Agents that don't require any authentication can be used to start a conversation by using the agent ID and the connection type. The agent ID can be acquired through the [ElevenLabs UI](https://elevenlabs.io/app/conversational-ai).
+
 For public agents, you can use the ID directly:
 
 ```js
 const conversation = await Conversation.startSession({
   agentId: "<your-agent-id>",
+  connectionType: 'webrtc' // 'websocket' is also accepted
 });
 ```
 
-##### Using a signed URL
+##### Private agents
 
-If the conversation requires authorization, you will need to add a dedicated endpoint to your server that
-will request a signed url using the [ElevenLabs API](https://elevenlabs.io/docs/introduction) and pass it back to the client.
+If the conversation requires authorization, you will need to add a dedicated endpoint to your server that will either request a signed url (if using the WebSockets connection type) or a conversation token (if using WebRTC) using the [ElevenLabs API](https://elevenlabs.io/docs/introduction) and pass it back to the client.
 
-Here's an example of how it could be set up:
+Here's an example for a WebSocket connection:
 
 ```js
 // Node.js server
 
 app.get("/signed-url", yourAuthMiddleware, async (req, res) => {
   const response = await fetch(
-    `https://api.elevenlabs.io/v1/convai/conversation/get_signed_url?agent_id=${process.env.AGENT_ID}`,
+    `https://api.elevenlabs.io/v1/convai/conversation/get-signed-url?agent_id=${process.env.AGENT_ID}`,
     {
-      method: "GET",
       headers: {
         // Requesting a signed url requires your ElevenLabs API key
         // Do NOT expose your API key to the client!
-        "xi-api-key": process.env.XI_API_KEY,
+        "xi-api-key": process.env.ELEVENLABS_API_KEY,
       },
     }
   );
@@ -99,7 +103,50 @@ app.get("/signed-url", yourAuthMiddleware, async (req, res) => {
 const response = await fetch("/signed-url", yourAuthHeaders);
 const signedUrl = await response.text();
 
-const conversation = await Conversation.startSession({ signedUrl });
+const conversation = await Conversation.startSession({
+  signedUrl,
+  connectionType: 'websocket',
+});
+```
+
+Here's an example for WebRTC:
+
+```js
+// Node.js server
+
+app.get("/conversation-token", yourAuthMiddleware, async (req, res) => {
+  const response = await fetch(
+    `https://api.elevenlabs.io/v1/convai/conversation/token?agent_id=${process.env.AGENT_ID}`,
+    {
+      headers: {
+        // Requesting a conversation token requires your ElevenLabs API key
+        // Do NOT expose your API key to the client!
+        'xi-api-key': process.env.ELEVENLABS_API_KEY,
+      }
+    }
+  );
+
+  if (!response.ok) {
+    return res.status(500).send("Failed to get conversation token");
+  }
+
+  const body = await response.json();
+  res.send(body.token);
+);
+```
+
+Once you have the token, providing it to `startSession` will initiate the conversation using WebRTC.
+
+```js
+// Client
+
+const response = await fetch("/conversation-token", yourAuthHeaders);
+const conversationToken = await response.text();
+
+const conversation = await Conversation.startSession({
+  conversationToken,
+  connectionType: 'webrtc',
+});
 ```
 
 #### Optional callbacks

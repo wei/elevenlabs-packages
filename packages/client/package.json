@@ -1,6 +1,6 @@
 {
   "name": "@elevenlabs/client",
-  "version": "0.1.7",
+  "version": "0.2.0",
   "description": "ElevenLabs JavaScript Client Library",
   "main": "./dist/lib.umd.js",
   "module": "./dist/lib.module.js",
@@ -44,5 +44,8 @@
     "type": "git",
     "url": "git+https://github.com/elevenlabs/packages.git",
     "directory": "packages/client"
+  },
+  "dependencies": {
+    "livekit-client": "^2.11.4"
   }
 }

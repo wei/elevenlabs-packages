@@ -2,6 +2,8 @@ import { it, expect, describe, vi } from "vitest";
 import { Client, Server } from "mock-socket";
 import chunk from "./__tests__/chunk";
 import { Mode, Status, Conversation } from "./index";
+import { createConnection } from "./utils/ConnectionFactory";
+import type { SessionConfig } from "./utils/BaseConnection";
 
 const CONVERSATION_ID = "TEST_CONVERSATION_ID";
 const OUTPUT_AUDIO_FORMAT = "pcm_16000";
@@ -267,6 +269,163 @@ describe("Conversation", () => {
       );
     }
   );
+});
+
+describe("Connection Types", () => {
+  describe("ConnectionFactory", () => {
+    it("throws error for unknown connection type", async () => {
+      const config = {
+        agentId: "test-agent",
+        connectionType: "unknown" as never,
+      };
+
+      await expect(createConnection(config)).rejects.toThrow(
+        "Unknown connection type: unknown"
+      );
+    });
+  });
+
+  describe("WebSocket Connection", () => {
+    it.each(ConversationTypes)(
+      "establishes websocket connection properly (%s)",
+      async conversationType => {
+        const server = new Server(
+          `wss://api.elevenlabs.io/${conversationType}/websocket`
+        );
+        const clientPromise = new Promise<Client>((resolve, reject) => {
+          server.on("connection", (socket: Client) => {
+            resolve(socket);
+          });
+          server.on("error", reject);
+          setTimeout(() => reject(new Error("timeout")), 5000);
+        });
+
+        const onConnect = vi.fn();
+        const onDisconnect = vi.fn();
+        let status: Status | null = null;
+
+        const conversationPromise = Conversation.startSession({
+          signedUrl: `wss://api.elevenlabs.io/${conversationType}/websocket`,
+          connectionType: "websocket",
+          onConnect,
+          onDisconnect,
+          onStatusChange: value => {
+            status = value.status;
+          },
+          connectionDelay: { default: 0 },
+          textOnly: conversationType === "text",
+        });
+
+        const client = await clientPromise;
+
+        // Start session
+        client.send(
+          JSON.stringify({
+            type: "conversation_initiation_metadata",
+            conversation_initiation_metadata_event: {
+              conversation_id: CONVERSATION_ID,
+              agent_output_audio_format: OUTPUT_AUDIO_FORMAT,
+            },
+          })
+        );
+
+        const conversation = await conversationPromise;
+        expect(conversation.getId()).toEqual(CONVERSATION_ID);
+        expect(status).toEqual("connected");
+        expect(onConnect).toHaveBeenCalledWith({
+          conversationId: CONVERSATION_ID,
+        });
+
+        await conversation.endSession();
+        expect(status).toEqual("disconnected");
+
+        server.close();
+      }
+    );
+
+    it("handles websocket connection errors properly", async () => {
+      const server = new Server(
+        "wss://api.elevenlabs.io/voice/websocket-error"
+      );
+      const clientPromise = new Promise<Client>((resolve, reject) => {
+        server.on("connection", (socket: Client) => {
+          socket.close({
+            code: 1006,
+            reason: "Connection failed",
+            wasClean: false,
+          });
+          resolve(socket);
+        });
+        server.on("error", reject);
+        setTimeout(() => reject(new Error("timeout")), 5000);
+      });
+
+      await expect(async () => {
+        await Conversation.startSession({
+          signedUrl: "wss://api.elevenlabs.io/voice/websocket-error",
+          connectionType: "websocket",
+          connectionDelay: { default: 0 },
+        });
+        await clientPromise;
+      }).rejects.toThrowError();
+
+      server.close();
+    });
+  });
+
+  describe("WebRTC Connection", () => {
+    it("fails when fetch returns error for agent id", async () => {
+      const config = {
+        agentId: "test-agent",
+        connectionType: "webrtc" as const,
+      };
+
+      // Mock fetch to return an error
+      const mockFetch = vi.fn().mockResolvedValue({
+        ok: false,
+        status: 404,
+        statusText: "Not Found",
+      });
+      globalThis.fetch = mockFetch;
+
+      await expect(createConnection(config)).rejects.toThrow(
+        "Failed to fetch conversation token for agent test-agent"
+      );
+
+      // Verify fetch was called with correct URL
+      expect(mockFetch).toHaveBeenCalledWith(
+        "https://api.elevenlabs.io/v1/convai/conversation/token?agent_id=test-agent"
+      );
+    });
+
+    it("fails when fetch returns no token for agent id", async () => {
+      const config = {
+        agentId: "test-agent",
+        connectionType: "webrtc" as const,
+      };
+
+      // Mock fetch to return success but no token
+      const mockFetch = vi.fn().mockResolvedValue({
+        ok: true,
+        json: () => Promise.resolve({}), // No token in response
+      });
+      globalThis.fetch = mockFetch;
+
+      await expect(createConnection(config)).rejects.toThrow(
+        "No conversation token received from API"
+      );
+    });
+
+    it("requires either conversation token or agent id for webrtc connection", async () => {
+      const config = {
+        connectionType: "webrtc" as const,
+      } as SessionConfig; // Type assertion to test runtime behavior with invalid config
+
+      await expect(createConnection(config)).rejects.toThrow(
+        "Either conversationToken or agentId is required for WebRTC connection"
+      );
+    });
+  });
 });
 
 async function sleep(ms: number) {
