@@ -69,6 +69,7 @@ export function SessionConfigProvider({
       overrides: overrides.value,
       connectionDelay: { default: 300 },
       textOnly: textOnly.value,
+      connectionType: "websocket" as const,
       userId: userId.value || undefined,
     };
 
