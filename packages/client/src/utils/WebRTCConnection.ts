@@ -4,6 +4,7 @@ import {
   type FormatConfig,
   parseFormat,
 } from "./BaseConnection";
+import { PACKAGE_VERSION } from "../version";
 import { isValidSocketEvent, type OutgoingSocketEvent } from "./events";
 import { Room, RoomEvent, Track, ConnectionState } from "livekit-client";
 import type {
@@ -58,9 +59,10 @@ export class WebRTCConnection extends BaseConnection {
     } else if ("agentId" in config && config.agentId) {
       // Agent ID provided - fetch token from API
       try {
-        const response = await fetch(
-          `https://api.elevenlabs.io/v1/convai/conversation/token?agent_id=${config.agentId}`
-        );
+        const version = config.overrides?.client?.version || PACKAGE_VERSION;
+        const source = config.overrides?.client?.source || "js_sdk";
+        const url = `https://api.elevenlabs.io/v1/convai/conversation/token?agent_id=${config.agentId}&source=${source}&version=${version}`;
+        const response = await fetch(url);
 
         if (!response.ok) {
           throw new Error(
