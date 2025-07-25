@@ -21,8 +21,8 @@ export function constructOverrides(
       conversation: {
         text_only: config.overrides.conversation?.textOnly,
       },
-      client: {
-        source: config.overrides?.client?.source || "react_native_sdk",
+      source_info: {
+        source: "react_native_sdk",
         version: config.overrides?.client?.version || PACKAGE_VERSION,
       },
     };
@@ -34,6 +34,10 @@ export function constructOverrides(
 
   if (config.dynamicVariables) {
     overridesEvent.dynamic_variables = config.dynamicVariables;
+  }
+
+  if (config.userId) {
+    overridesEvent.user_id = config.userId;
   }
 
   return overridesEvent;

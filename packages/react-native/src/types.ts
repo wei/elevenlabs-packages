@@ -122,6 +122,7 @@ export type ConversationConfig = {
   };
   customLlmExtraBody?: unknown;
   dynamicVariables?: Record<string, string | number | boolean>;
+  userId?: string;
 };
 
 export type InitiationClientDataEvent = {
@@ -140,11 +141,12 @@ export type InitiationClientDataEvent = {
     conversation?: {
       text_only?: boolean;
     };
-    client?: {
-      source?: string;
-      version?: string;
+    source_info?: {
+      source?: string | null;
+      version?: string | null;
     };
   };
   custom_llm_extra_body?: unknown;
   dynamic_variables?: Record<string, string | number | boolean>;
+  user_id?: string;
 };
