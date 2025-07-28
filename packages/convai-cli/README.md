@@ -41,6 +41,8 @@ Or set environment variable:
 export ELEVENLABS_API_KEY="your_api_key_here"
 ```
 
+> **Note**: For now, your API key must be unrestricted to work with the CLI, as Conversational AI-restricted keys are not available yet. 
+
 ### Check Status
 ```bash
 convai whoami
