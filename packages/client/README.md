@@ -161,6 +161,19 @@ The options passed to `startSession` can also be used to register optional callb
 - **onModeChange** - handler called when a status changes, eg. agent switches from `speaking` to `listening`, or the other way around.
 - **onCanSendFeedbackChange** - handler called when sending feedback becomes available or unavailable.
 
+#### Setting input/output devices
+
+You can provide a device ID to start the conversation using the input/output device of your choice. If the device ID is invalid, the default input and output devices will be used.
+
+```js
+const conversation = await Conversation.startSession({
+  agentId: '<your-agent-id>',
+  inputDeviceId: '<new-input-id>',
+  outputDeviceId: '<new-output-id>',
+});
+
+**Note:** Device switching only works for voice conversations. You can enumerate available devices using the [MediaDevices.enumerateDevices()](https://developer.mozilla.org/en-US/docs/Web/API/MediaDevices/enumerateDevices) API.
+
 #### Client Tools
 
 Client tools are a way to enabled agent to invoke client-side functionality. This can be used to trigger actions in the client, such as opening a modal or doing an API call on behalf of the user.
@@ -374,11 +387,15 @@ const outputVolume = await conversation.getOutputVolume();
 
 ##### getInputByteFrequencyData / getOutputByteFrequencyData
 
-Methods that return `Uint8Array`s containg the current input/output frequency data. See [AnalyserNode.getByteFrequencyData](https://developer.mozilla.org/en-US/docs/Web/API/AnalyserNode/getByteFrequencyData) for more information.
+Methods that return `Uint8Array`s containing the current input/output frequency data. See [AnalyserNode.getByteFrequencyData](https://developer.mozilla.org/en-US/docs/Web/API/AnalyserNode/getByteFrequencyData) for more information.
+
+**Note:** These methods are only available for voice conversations. In WebRTC mode the audio is hardcoded to use `pcm_48000`, meaning any visualization using the returned data might show different patterns to WebSocket connections.
 
 ##### changeInputDevice
 
 Allows you to change the audio input device during an active voice conversation. This method is only available for voice conversations.
+
+**Note:** In WebRTC mode the input format and sample rate are hardcoded to `pcm` and `48000` respectively. Changing those values when changing the input device is a no-op.
 
 ```js
 import { VoiceConversation } from "@elevenlabs/client";
@@ -401,6 +418,8 @@ await (conversation as VoiceConversation).changeInputDevice({
 ##### changeOutputDevice
 
 Allows you to change the audio output device during an active voice conversation. This method is only available for voice conversations.
+
+**Note:** In WebRTC mode the output format and sample rate are hardcoded to `pcm` and `48000` respectively. Changing those values when changing the output device is a no-op.
 
 ```js
 import { VoiceConversation } from "@elevenlabs/client";

@@ -10,6 +10,15 @@ export type InputConfig = {
 const LIBSAMPLERATE_JS =
   "https://cdn.jsdelivr.net/npm/@alexanderolsen/libsamplerate-js@2.1.2/dist/libsamplerate.worklet.js";
 
+const defaultConstraints = {
+  echoCancellation: true,
+  noiseSuppression: true,
+  // Automatic gain control helps maintain a steady volume level with microphones: https://developer.mozilla.org/en-US/docs/Web/API/MediaTrackSettings/autoGainControl
+  autoGainControl: true,
+  // Mono audio for better echo cancellation
+  channelCount: { ideal: 1 },
+};
+
 export class Input {
   public static async create({
     sampleRate,
@@ -23,8 +32,7 @@ export class Input {
     try {
       const options: MediaTrackConstraints = {
         sampleRate: { ideal: sampleRate },
-        echoCancellation: true,
-        noiseSuppression: true,
+        ...defaultConstraints,
       };
 
       if (isIosDevice() && preferHeadphonesForIosDevices) {
@@ -74,9 +82,11 @@ export class Input {
 
       await context.resume();
 
-      return new Input(context, analyser, worklet, inputStream);
+      return new Input(context, analyser, worklet, inputStream, source);
     } catch (error) {
-      inputStream?.getTracks().forEach(track => track.stop());
+      inputStream?.getTracks().forEach(track => {
+        track.stop();
+      });
       context?.close();
       throw error;
     }
@@ -86,15 +96,57 @@ export class Input {
     public readonly context: AudioContext,
     public readonly analyser: AnalyserNode,
     public readonly worklet: AudioWorkletNode,
-    public readonly inputStream: MediaStream
+    public inputStream: MediaStream,
+    private mediaStreamSource: MediaStreamAudioSourceNode
   ) {}
 
   public async close() {
-    this.inputStream.getTracks().forEach(track => track.stop());
+    this.inputStream.getTracks().forEach(track => {
+      track.stop();
+    });
+    this.mediaStreamSource.disconnect();
     await this.context.close();
   }
 
   public setMuted(isMuted: boolean) {
     this.worklet.port.postMessage({ type: "setMuted", isMuted });
+  }
+
+  public async setInputDevice(inputDeviceId: string): Promise<void> {
+    if (!inputDeviceId) {
+      throw new Error("Input device ID is required");
+    }
+
+    try {
+      // Create new constraints with the specified device
+      const options: MediaTrackConstraints = {
+        deviceId: { exact: inputDeviceId },
+        ...defaultConstraints,
+      };
+
+      const constraints = { voiceIsolation: true, ...options };
+
+      // Get new media stream with the specified device
+      const newInputStream = await navigator.mediaDevices.getUserMedia({
+        audio: constraints,
+      });
+
+      // Stop old tracks and disconnect old source
+      this.inputStream.getTracks().forEach(track => {
+        track.stop();
+      });
+      this.mediaStreamSource.disconnect();
+
+      // Replace the stream and create new source
+      this.inputStream = newInputStream;
+      this.mediaStreamSource =
+        this.context.createMediaStreamSource(newInputStream);
+
+      // Reconnect the audio graph
+      this.mediaStreamSource.connect(this.analyser);
+    } catch (error) {
+      console.error("Failed to switch input device:", error);
+      throw error;
+    }
   }
 }
