@@ -103,7 +103,7 @@ const commands: Command[] = [
 
 export const HelpView: React.FC = () => {
   const { exit } = useApp();
-
+  
   useEffect(() => {
     // Auto-exit after a short delay to allow the UI to render
     const timer = setTimeout(() => {
@@ -157,7 +157,6 @@ export const HelpView: React.FC = () => {
               </Box>
               <Text color={theme.colors.text.secondary}>{cmd.description}</Text>
             </Box>
-
             {cmd.subcommands &&
               cmd.subcommands.map((subcmd, subIndex) => (
                 <Box key={subIndex} marginLeft={4}>
