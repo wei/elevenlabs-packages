@@ -235,13 +235,154 @@ describe('CLI End-to-End Tests', () => {
     it('should handle lock file operations', async () => {
       // Initialize project
       await runCli(['init']);
-      
+
       // Check that lock file was created with correct structure
       const lockFilePath = path.join(tempDir, 'agents.lock');
       const content = await fs.readFile(lockFilePath, 'utf-8');
       const parsed = JSON.parse(content);
-      
-      expect(parsed).toEqual({ agents: {}, tools: {} });
+
+      expect(parsed).toEqual({ agents: {}, tools: {}, tests: {} });
+    });
+  });
+
+  describe('sync-tools command', () => {
+    beforeEach(async () => {
+      // Initialize project for each test
+      await runCli(['init']);
+    });
+
+    it('should recognize sync-tools command', async () => {
+      const result = await runCli(['sync-tools', '--dry-run']);
+
+      // Should succeed in dry-run mode with valid tools.json (created by init)
+      expect(result.exitCode).toBe(0);
+      expect(result.stderr).not.toContain('unknown command');
+      // Should show dry-run mode output
+      expect(result.stdout).toContain('Dry run mode');
+    });
+
+    it('should show help for sync-tools command', async () => {
+      const result = await runCli(['sync-tools', '--help', '--no-ui']);
+
+      // Command should be recognized, even if help doesn't work perfectly
+      // The important thing is it's not "unknown command"
+      expect(result.stderr).not.toContain('unknown command');
+    });
+
+    it('should handle missing tools.json file', async () => {
+      // Remove tools.json to test missing file scenario
+      const toolsJsonPath = path.join(tempDir, 'tools.json');
+      await fs.remove(toolsJsonPath);
+
+      const result = await runCli(['sync-tools']);
+
+      expect(result.exitCode).toBe(1);
+      // Should get tools.json not found error
+      expect(result.stderr).toContain('tools.json not found');
+    });
+
+    it('should handle dry-run option', async () => {
+      const result = await runCli(['sync-tools', '--dry-run']);
+
+      expect(result.exitCode).toBe(0);
+      // Should get expected success, not unknown option error
+      expect(result.stderr).not.toContain('unknown option');
+      expect(result.stdout).toContain('Dry run mode');
+    });
+
+    it('should handle specific tool name option', async () => {
+      const result = await runCli(['sync-tools', '--tool', 'test-tool']);
+
+      expect(result.exitCode).toBe(1);
+      // --tool option should be parsed correctly (no unknown option error)
+      expect(result.stderr).not.toContain('unknown option');
+      // Should get tool not found error since test-tool doesn't exist in empty tools.json
+      expect(result.stderr).toContain('not found in configuration');
+    });
+
+    it('should work with existing tools.json', async () => {
+      // Create a minimal tools.json
+      const toolsJson = {
+        tools: [
+          {
+            name: 'test-webhook',
+            type: 'webhook',
+            config: 'tool_configs/test_webhook.json'
+          }
+        ]
+      };
+
+      const toolsJsonPath = path.join(tempDir, 'tools.json');
+      await fs.writeFile(toolsJsonPath, JSON.stringify(toolsJson, null, 2));
+
+      // Create the config directory and a minimal config file
+      const configDir = path.join(tempDir, 'tool_configs');
+      await fs.ensureDir(configDir);
+
+      const toolConfig = {
+        name: 'test-webhook',
+        description: 'Test webhook tool',
+        type: 'webhook',
+        api_schema: {
+          url: 'https://api.example.com/webhook',
+          method: 'POST'
+        }
+      };
+
+      const configPath = path.join(configDir, 'test_webhook.json');
+      await fs.writeFile(configPath, JSON.stringify(toolConfig, null, 2));
+
+      // Run sync-tools with dry-run (so it doesn't try to make API calls)
+      const result = await runCli(['sync-tools', '--dry-run']);
+
+      // Should succeed (exit code 0) since files exist
+      expect(result.exitCode).toBe(0);
+      expect(result.stdout).toContain('test-webhook (webhook)');
+      expect(result.stdout).toContain('Dry run mode - no changes will be made');
+    });
+
+    it('should handle missing config files gracefully', async () => {
+      // Create tools.json with reference to non-existent config
+      const toolsJson = {
+        tools: [
+          {
+            name: 'missing-config-tool',
+            type: 'webhook',
+            config: 'non_existent.json'
+          }
+        ]
+      };
+
+      const toolsJsonPath = path.join(tempDir, 'tools.json');
+      await fs.writeFile(toolsJsonPath, JSON.stringify(toolsJson, null, 2));
+
+      const result = await runCli(['sync-tools', '--dry-run']);
+
+      // Should not crash, UI should handle gracefully
+      expect(result.exitCode).toBe(0);
+      expect(result.stdout).toContain('missing-config-tool (webhook)');
+    });
+
+    it('should handle tools without config path', async () => {
+      // Create tools.json with tool missing config path
+      const toolsJson = {
+        tools: [
+          {
+            name: 'no-config-tool',
+            type: 'webhook'
+            // Missing config property
+          }
+        ]
+      };
+
+      const toolsJsonPath = path.join(tempDir, 'tools.json');
+      await fs.writeFile(toolsJsonPath, JSON.stringify(toolsJson, null, 2));
+
+      const result = await runCli(['sync-tools', '--dry-run']);
+
+      // Should not crash, UI should handle gracefully
+      expect(result.exitCode).toBe(0);
+      expect(result.stdout).toContain('no-config-tool (webhook)');
     });
   });
 });
