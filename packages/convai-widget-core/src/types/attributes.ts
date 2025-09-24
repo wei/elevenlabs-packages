@@ -12,6 +12,19 @@ export function parseBoolAttribute(value: string | undefined): boolean | null {
   return null;
 }
 
+export function parseConnectionTypeAttribute(
+  value: string | undefined
+): "websocket" | "webrtc" | null {
+  if (!value) {
+    return null;
+  }
+  if (value === "websocket" || value === "webrtc") {
+    return value;
+  }
+
+  return null;
+}
+
 export const CustomAttributeList = [
   "variant",
   "placement",
@@ -24,6 +37,7 @@ export const CustomAttributeList = [
   "terms-key",
   "server-location",
   "language",
+  "connection-type",
   "dynamic-variables",
   "show-avatar-when-collapsed",
   "override-prompt",

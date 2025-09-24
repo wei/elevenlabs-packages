@@ -7,7 +7,10 @@ import { useLanguageConfig } from "./language-config";
 import { useServerLocation } from "./server-location";
 
 import { useContextSafely } from "../utils/useContextSafely";
-import { parseBoolAttribute } from "../types/attributes";
+import {
+  parseBoolAttribute,
+  parseConnectionTypeAttribute,
+} from "../types/attributes";
 import { useTextOnly, useWebRTC } from "./widget-config";
 
 type DynamicVariables = Record<string, string | number | boolean>;
@@ -62,10 +65,23 @@ export function SessionConfigProvider({
   const { webSocketUrl } = useServerLocation();
   const agentId = useAttribute("agent-id");
   const signedUrl = useAttribute("signed-url");
+  const connectionTypeAttr = useAttribute("connection-type");
   const textOnly = useTextOnly();
   const useWebRTCEnabled = useWebRTC();
   const value = useComputed<SessionConfig | null>(() => {
-    const isWebRTC = useWebRTCEnabled.value;
+    // Parse the connection-type attribute, if provided
+    const explicitConnectionType = parseConnectionTypeAttribute(
+      connectionTypeAttr.value
+    );
+
+    // Determine connection type: explicit attribute > useWebRTC hook > default to websocket
+    let connectionType: "websocket" | "webrtc";
+    if (explicitConnectionType) {
+      connectionType = explicitConnectionType;
+    } else {
+      connectionType = useWebRTCEnabled.value ? "webrtc" : "websocket";
+    }
+
     const baseConfig = {
       dynamicVariables: dynamicVariables.value,
       overrides: overrides.value,
@@ -75,21 +91,12 @@ export function SessionConfigProvider({
     };
 
     if (agentId.value) {
-      if (isWebRTC) {
-        return {
-          agentId: agentId.value,
-          origin: webSocketUrl.value,
-          connectionType: "webrtc" as const,
-          ...baseConfig,
-        };
-      } else {
-        return {
-          agentId: agentId.value,
-          origin: webSocketUrl.value,
-          connectionType: "websocket" as const,
-          ...baseConfig,
-        };
-      }
+      return {
+        agentId: agentId.value,
+        origin: webSocketUrl.value,
+        connectionType: connectionType,
+        ...baseConfig,
+      };
     }
 
     if (signedUrl.value) {
