@@ -87,6 +87,7 @@ export function WidgetConfigProvider({ children }: WidgetConfigProviderProps) {
   const defaultExpanded = useAttribute("default-expanded");
   const alwaysExpanded = useAttribute("always-expanded");
   const overrideTextOnly = useAttribute("override-text-only");
+  const useRtc = useAttribute("use-rtc");
 
   const value = useComputed<WidgetConfig | null>(() => {
     if (!fetchedConfig.value) {
@@ -119,6 +120,10 @@ export function WidgetConfigProvider({ children }: WidgetConfigProviderProps) {
       parseBoolAttribute(defaultExpanded.value) ??
       fetchedConfig.value.default_expanded ??
       false;
+    const patchedUseRtc =
+      parseBoolAttribute(useRtc.value) ??
+      fetchedConfig.value.use_rtc ??
+      false;
 
     return {
       ...fetchedConfig.value,
@@ -130,6 +135,7 @@ export function WidgetConfigProvider({ children }: WidgetConfigProviderProps) {
       text_input_enabled: textOnly || patchedTextInput,
       always_expanded: patchedAlwaysExpanded,
       default_expanded: patchedDefaultExpanded,
+      use_rtc: patchedUseRtc,
     };
   });
 
