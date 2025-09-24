@@ -190,4 +190,27 @@ describe("elevenlabs-convai", () => {
       await expect.element(startButton).toBeInTheDocument();
     }
   );
+
+  it.each(Variants)(
+    "$0 variant should handle use-rtc attribute",
+    async variant => {
+      setupWebComponent({ 
+        "agent-id": "basic", 
+        "use-rtc": "true",
+        variant 
+      });
+
+      const startButton = page.getByRole("button", { name: "Start a call" });
+      await startButton.click();
+
+      await expect.element(page.getByText("Test terms")).toBeInTheDocument();
+      const acceptButton = page.getByRole("button", { name: "Accept" });
+      await acceptButton.click();
+
+      const endButton = page.getByRole("button", { name: "End", exact: true });
+      await endButton.click();
+
+      await expect.element(startButton).toBeInTheDocument();
+    }
+  );
 });
