@@ -1,7 +1,7 @@
+import { Callbacks, Mode, Status } from "@elevenlabs/types";
 import type {
   BaseConnection,
   DisconnectionDetails,
-  OnDisconnectCallback,
   SessionConfig,
   FormatConfig,
 } from "./utils/BaseConnection";
@@ -21,20 +21,33 @@ import type {
   MCPConnectionStatusEvent,
 } from "./utils/events";
 import type { InputConfig } from "./utils/input";
-import type { Role, Mode, Status, Callbacks } from "@elevenlabs/types";
+import type { OutputConfig } from "./utils/output";
 
 export type { Role, Mode, Status, Callbacks } from "@elevenlabs/types";
+
+/** Allows self-hosting the worklets to avoid whitelisting blob: and data: in the CSP script-src  */
+export type AudioWorkletConfig = {
+  workletPaths?: {
+    rawAudioProcessor?: string;
+    audioConcatProcessor?: string;
+  };
+  libsampleratePath?: string;
+};
 
 export type Options = SessionConfig &
   Callbacks &
   ClientToolsConfig &
-  InputConfig;
+  InputConfig &
+  OutputConfig &
+  AudioWorkletConfig;
 
 export type PartialOptions = SessionConfig &
   Partial<Callbacks> &
   Partial<ClientToolsConfig> &
   Partial<InputConfig> &
-  Partial<FormatConfig>;
+  Partial<OutputConfig> &
+  Partial<FormatConfig> &
+  Partial<AudioWorkletConfig>;
 
 export type ClientToolsConfig = {
   clientTools: Record<

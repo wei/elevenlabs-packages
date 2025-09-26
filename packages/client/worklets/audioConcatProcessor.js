@@ -1,17 +1,12 @@
 /*
  * ulaw decoding logic taken from the wavefile library
  * https://github.com/rochars/wavefile/blob/master/lib/codecs/mulaw.js
+ * USED BY @elevenlabs/client
  */
 
-import { createWorkletModuleLoader } from "./createWorkletModuleLoader";
-
-export const loadAudioConcatProcessor = createWorkletModuleLoader(
-  "audio-concat-processor",
-  // language=JavaScript
-  `
 const decodeTable = [0,132,396,924,1980,4092,8316,16764];
 
-export function decodeSample(muLawSample) {
+function decodeSample(muLawSample) {
   let sign;
   let exponent;
   let mantissa;
@@ -94,6 +89,4 @@ class AudioConcatProcessor extends AudioWorkletProcessor {
   }
 }
 
-registerProcessor("audio-concat-processor", AudioConcatProcessor);
-`
-);
+registerProcessor("audioConcatProcessor", AudioConcatProcessor);
