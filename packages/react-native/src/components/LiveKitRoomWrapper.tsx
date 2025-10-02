@@ -1,3 +1,4 @@
+// @ts-nocheck - pnpm hoisting causes duplicate React type definitions
 import React from 'react';
 import { LiveKitRoom } from '@livekit/react-native';
 import type { LocalParticipant } from 'livekit-client';
@@ -44,6 +45,11 @@ export const LiveKitRoomWrapper = ({
       video={false}
       options={{
         adaptiveStream: { pixelDensity: 'screen' },
+      }}
+      connectOptions={{
+        rtcConfig: {
+          iceTransportPolicy: 'relay',
+        },
       }}
       onConnected={onConnected}
       onDisconnected={onDisconnected}
