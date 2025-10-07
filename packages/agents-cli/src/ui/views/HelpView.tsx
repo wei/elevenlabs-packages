@@ -44,22 +44,16 @@ const commands: Command[] = [
     description: "Set the API residency location",
   },
   {
-    name: "add",
-    description: "Add agents and tools",
-    subcommands: [
-      {
-        name: "agent <name>",
-        description: "Add a new agent",
-      },
-      {
-        name: "webhook-tool <name>",
-        description: "Add a new webhook tool",
-      },
-      {
-        name: "client-tool <name>",
-        description: "Add a new client tool",
-      },
-    ],
+    name: "add <name>",
+    description: "Add a new agent",
+  },
+  {
+    name: "add-webhook-tool <name>",
+    description: "Add a new webhook tool",
+  },
+  {
+    name: "add-client-tool <name>",
+    description: "Add a new client tool",
   },
   {
     name: "templates",
@@ -76,8 +70,12 @@ const commands: Command[] = [
     ],
   },
   {
-    name: "sync",
-    description: "Synchronize agents with ElevenLabs API",
+    name: "push",
+    description: "Push agents to ElevenLabs API",
+  },
+  {
+    name: "push-tools",
+    description: "Push tools to ElevenLabs API",
   },
   {
     name: "status",
@@ -85,15 +83,35 @@ const commands: Command[] = [
   },
   {
     name: "watch",
-    description: "Watch for config changes and auto-sync",
+    description: "Watch for config changes and auto-push",
   },
   {
-    name: "list-agents",
+    name: "list",
     description: "List all configured agents",
   },
   {
-    name: "fetch",
-    description: "Fetch agents from ElevenLabs workspace",
+    name: "pull",
+    description: "Pull agents from ElevenLabs workspace",
+  },
+  {
+    name: "pull-tools",
+    description: "Pull tools from ElevenLabs workspace",
+  },
+  {
+    name: "add-test <name>",
+    description: "Add a new test",
+  },
+  {
+    name: "push-tests",
+    description: "Push tests to ElevenLabs API",
+  },
+  {
+    name: "pull-tests",
+    description: "Pull tests from ElevenLabs workspace",
+  },
+  {
+    name: "test <agent>",
+    description: "Run tests for an agent",
   },
   {
     name: "widget <name>",
@@ -206,8 +224,8 @@ export const HelpView: React.FC = () => {
             </Text>
           </Text>
           <Text color={theme.colors.text.secondary}>
-            4. Sync to ElevenLabs:{" "}
-            <Text color={theme.colors.success}>agents sync</Text>
+            4. Push to ElevenLabs:{" "}
+            <Text color={theme.colors.success}>agents push</Text>
           </Text>
         </Box>
       </Box>

@@ -6,7 +6,7 @@
 
 Build multimodal agents with the [ElevenLabs Agents platform](https://elevenlabs.io/docs/agents-platform/overview).
 
-Manage ElevenLabs Agents with local configuration files. This tool is an experimental exploration of treating agents as code, with features like templates, multi-environment support, and automatic syncing.
+Manage ElevenLabs Agents with local configuration files. This tool is an experimental exploration of treating agents as code, with features like templates, multi-environment support, and automatic pushing.
 
 ## Features
 
@@ -94,7 +94,7 @@ agents add "Support Bot" --template customer-service
 # 4. Edit configuration (agent_configs/prod/support_bot.json)
 
 # 5. Sync to ElevenLabs
-agents sync
+agents push
 
 # 6. Watch for changes (optional)
 agents watch
@@ -131,8 +131,20 @@ agents whoami
 # Create agent
 agents add "Agent Name" [--template customer-service] [--env dev]
 
-# Sync changes
-agents sync [--agent "Agent Name"] [--env production] [--dry-run]
+# Create webhook tool
+agents add-webhook-tool "Tool Name" [--config-path path] [--skip-upload]
+
+# Create client tool
+agents add-client-tool "Tool Name" [--config-path path] [--skip-upload]
+
+# Push changes
+agents push [--agent "Agent Name"] [--env production] [--dry-run]
+
+# Sync tools
+agents push-tools [--tool "Tool Name"] [--dry-run]
+
+# Sync tests
+agents push-tests [--dry-run]
 
 # Check status
 agents status [--agent "Agent Name"] [--env production]
@@ -140,17 +152,23 @@ agents status [--agent "Agent Name"] [--env production]
 # Watch for changes
 agents watch [--agent "Agent Name"] [--env dev] [--interval 5]
 
-# Import from ElevenLabs
-agents fetch [--search "term"] [--env staging] [--dry-run]
+# Pull agents from ElevenLabs
+agents pull [--search "term"] [--env staging] [--dry-run]
 
-# Import tools from ElevenLabs
-agents fetch-tools [--search "term"] [--tool "tool-name"] [--dry-run] [--output-dir tool_configs]
+# Pull tools from ElevenLabs
+agents pull-tools [--search "term"] [--tool "tool-name"] [--dry-run] [--output-dir tool_configs]
+
+# Import tests from ElevenLabs
+agents pull-tests [--output-dir test_configs] [--dry-run]
+
+# Run tests
+agents test "Agent Name" [--env production]
 
 # Generate widget HTML (includes server-location for isolated regions)
 agents widget "Agent Name" [--env production]
 
 # List agents
-agents list-agents
+agents list
 
 # Add componenents from [ui.elevenlabs.io](https://ui.elevenlabs.io)
 agents components add "Component Name"
@@ -223,7 +241,7 @@ General purpose AI assistant configuration. Balanced creativity settings with he
 agents init
 agents login
 agents add "My Agent" --template assistant
-agents sync
+agents push
 ```
 
 **Multi-Environment:**
@@ -231,8 +249,8 @@ agents sync
 ```bash
 agents add "Bot" --env dev --template customer-service
 agents add "Bot" --env prod --template customer-service
-agents sync --env dev
-agents sync --env prod
+agents push --env dev
+agents push --env prod
 ```
 
 **Import Existing:**
@@ -240,8 +258,8 @@ agents sync --env prod
 ```bash
 agents init
 agents login
-agents fetch --env prod
-agents sync
+agents pull --env prod
+agents push
 ```
 
 **Import and Use Tools:**
@@ -249,17 +267,17 @@ agents sync
 ```bash
 agents init
 agents login
-agents fetch-tools
+agents pull-tools
 # Edit tool configs in tool_configs/
 # Reference tools in your agent configurations
-agents sync
+agents push
 ```
 
 **Development:**
 
 ```bash
 agents watch --env dev --interval 5
-# Edit configs in another terminal - auto-syncs!
+# Edit configs in another terminal - auto-pushes!
 ```
 
 ## Troubleshooting
@@ -282,9 +300,9 @@ export ELEVENLABS_API_KEY="your_api_key_here"
 - Check: `agents list-agents`
 - Verify: `agents status --env <environment>`
 
-**Sync Issues:**
+**Push Issues:**
 
-- Preview: `agents sync --dry-run`
+- Preview: `agents push --dry-run`
 - Check: `cat agents.lock`
 
 **Reset Project:**
@@ -293,7 +311,7 @@ export ELEVENLABS_API_KEY="your_api_key_here"
 rm agents.lock
 agents init
 agents login
-agents sync
+agents push
 ```
 
 ## Development
