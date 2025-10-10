@@ -8,12 +8,6 @@ import {
   calculateConfigHash,
   readAgentConfig,
   writeAgentConfig,
-  loadLockFile,
-  saveLockFile,
-  getAgentFromLock,
-  updateAgentInLock,
-  updateTestInLock,
-  getTestFromLock,
   toCamelCaseKeys,
   toSnakeCaseKeys
 } from './utils.js';
@@ -22,6 +16,7 @@ import {
   getTemplateOptions,
   AgentConfig 
 } from './templates.js';
+import { TestConfig } from './test-templates.js';
 import {
   getElevenLabsClient,
   createAgentApi,
@@ -54,11 +49,7 @@ import {
   writeToolConfig,
   ToolsConfig,
   ToolDefinition,
-  type Tool,
-  loadToolsLockFile,
-  saveToolsLockFile,
-  updateToolInLock,
-  getToolFromLock
+  type Tool
 } from './tools.js';
 import { readFileSync } from 'fs';
 import { fileURLToPath } from 'url';
@@ -97,11 +88,11 @@ const program = new Command();
 const AGENTS_CONFIG_FILE = "agents.json";
 const TOOLS_CONFIG_FILE = "tools.json";
 const TESTS_CONFIG_FILE = "tests.json";
-const LOCK_FILE = "agents.lock";
 
 interface AgentDefinition {
   name: string;
   config: string;
+  id?: string;
 }
 
 interface AgentsConfig {
@@ -112,6 +103,7 @@ interface TestDefinition {
   name: string;
   config: string;
   type?: string;
+  id?: string;
 }
 
 interface TestsConfig {
@@ -248,20 +240,6 @@ program
           await fs.ensureDir(dirPath);
           const existed = await fs.pathExists(dirPath);
           console.log(`Created directory: ${dir}${!options.override && existed ? ' (already existed)' : ''}`);
-        }
-        
-        // Create initial lock file
-        const lockFilePath = path.join(fullPath, LOCK_FILE);
-        if (!options.override && await fs.pathExists(lockFilePath)) {
-          console.log(`${LOCK_FILE} already exists (skipped)`);
-        } else {
-          const initialLockData = {
-            agents: {},
-            tools: {},
-            tests: {}
-          };
-          await saveLockFile(lockFilePath, initialLockData);
-          console.log(`Created ${LOCK_FILE}`);
         }
         
         // Create .env.example file
@@ -495,24 +473,6 @@ program
       // Load existing config
       const agentsConfig = await readAgentConfig<AgentsConfig>(agentsConfigPath);
       
-      // Load lock file
-      const lockFilePath = path.resolve(LOCK_FILE);
-      const lockData = await loadLockFile(lockFilePath);
-      
-      // Check if agent already exists
-      const lockedAgent = getAgentFromLock(lockData, name);
-      if (lockedAgent?.id) {
-        console.error(`Agent '${name}' already exists`);
-        process.exit(1);
-      }
-      
-      // Check if agent name exists in agents.json
-      const existingAgent = agentsConfig.agents.find(agent => agent.name === name);
-      if (existingAgent) {
-        console.error(`Agent '${name}' already exists in agents.json`);
-        process.exit(1);
-      }
-      
       // Generate config path if not provided
       let configPath = options.configPath;
       if (!configPath) {
@@ -569,20 +529,17 @@ program
       
       console.log(`Created agent in ElevenLabs with ID: ${agentId}`);
       
+      // Store agent ID in index file, not in config file
       const newAgent: AgentDefinition = {
         name,
-        config: configPath
+        config: configPath,
+        id: agentId
       };
       agentsConfig.agents.push(newAgent);
       
       // Save updated agents.json
       await writeAgentConfig(agentsConfigPath, agentsConfig);
       console.log(`Added agent '${name}' to agents.json`);
-      
-      // Update lock file with agent ID
-      const configHash = calculateConfigHash(toSnakeCaseKeys(agentConfig));
-      updateAgentInLock(lockData, name, agentId, configHash);
-      await saveLockFile(lockFilePath, lockData);
       
       console.log(`Edit ${configPath} to customize your agent, then run 'agents push' to update`);
       
@@ -690,7 +647,8 @@ program
         const pushAgentsData = agentsToProcess.map(agent => ({
           name: agent.name,
           configPath: agent.config,
-          status: 'pending' as const
+          status: 'pending' as const,
+          agentId: agent.id
         }));
         
         const { waitUntilExit } = render(
@@ -986,16 +944,12 @@ async function addTool(name: string, type: 'webhook' | 'client', configPath?: st
     console.log(`Created ${TOOLS_CONFIG_FILE}`);
   }
   
-  // Load lock file
-  const lockFilePath = path.resolve(LOCK_FILE);
-  const lockData = await loadLockFile(lockFilePath);
-  
   // Check if tool already exists
   const existingTool = toolsConfig.tools.find(tool => tool.name === name);
-  const lockedTool = getToolFromLock(lockData, name);
   
-  if (existingTool && lockedTool?.id) {
-    console.error(`Tool '${name}' already exists`);
+  if (existingTool && existingTool.id) {
+    // Check if the tool already has an ID in the index file
+    console.error(`Tool '${name}' already exists with ID: ${existingTool.id}`);
     process.exit(1);
   }
   
@@ -1100,10 +1054,12 @@ async function addTool(name: string, type: 'webhook' | 'client', configPath?: st
     
     console.log(`Created tool in ElevenLabs with ID: ${toolId}`);
     
-    // Update lock file
-    const configHash = calculateConfigHash(toSnakeCaseKeys(toolConfig));
-    updateToolInLock(lockData, name, toolId, configHash);
-    await saveLockFile(lockFilePath, lockData);
+    // Store tool ID in index file
+    const toolDef = toolsConfig.tools.find(t => t.name === name);
+    if (toolDef) {
+      toolDef.id = toolId;
+      await writeToolsConfig(toolsConfigPath, toolsConfig);
+    }
     
     console.log(`Edit ${configPath} to customize your tool, then run 'agents push-tools' to update`);
     
@@ -1121,8 +1077,6 @@ async function pushAgents(agentName?: string, dryRun = false): Promise<void> {
   }
   
   const agentsConfig = await readAgentConfig<AgentsConfig>(agentsConfigPath);
-  const lockFilePath = path.resolve(LOCK_FILE);
-  const lockData = await loadLockFile(lockFilePath);
   
   // Initialize ElevenLabs client
   let client;
@@ -1165,28 +1119,11 @@ async function pushAgents(agentName?: string, dryRun = false): Promise<void> {
       continue;
     }
     
-    // Calculate config hash
-    const configHash = calculateConfigHash(toSnakeCaseKeys(agentConfig));
+    // Get agent ID from index file
+    const agentId = agentDef.id;
     
-    // Get agent data from lock file
-    const lockedAgent = getAgentFromLock(lockData, agentDefName);
-    
-    let needsUpdate = true;
-    
-    if (lockedAgent) {
-      if (lockedAgent.hash === configHash) {
-        needsUpdate = false;
-        console.log(`${agentDefName}: No changes`);
-      } else {
-        console.log(`${agentDefName}: Config changed, will update`);
-      }
-    } else {
-      console.log(`${agentDefName}: New agent detected, will create`);
-    }
-    
-    if (!needsUpdate) {
-      continue;
-    }
+    // Always push (force override)
+    console.log(`${agentDefName}: Will push (force override)`);
     
     if (dryRun) {
       console.log(`[DRY RUN] Would update agent: ${agentDefName}`);
@@ -1195,8 +1132,6 @@ async function pushAgents(agentName?: string, dryRun = false): Promise<void> {
     
     // Perform API operation
     try {
-      const agentId = lockedAgent?.id;
-      
       // Extract config components
       const conversationConfig = agentConfig.conversation_config || {};
       const platformSettings = agentConfig.platform_settings;
@@ -1214,7 +1149,10 @@ async function pushAgents(agentName?: string, dryRun = false): Promise<void> {
           tags
         );
         console.log(`Created agent ${agentDefName} (ID: ${newAgentId})`);
-        updateAgentInLock(lockData, agentDefName, newAgentId, configHash);
+        
+        // Store agent ID in index file
+        agentDef.id = newAgentId;
+        changesMade = true;
       } else {
         // Update existing agent
         await updateAgentApi(
@@ -1226,7 +1164,6 @@ async function pushAgents(agentName?: string, dryRun = false): Promise<void> {
           tags
         );
         console.log(`Updated agent ${agentDefName} (ID: ${agentId})`);
-        updateAgentInLock(lockData, agentDefName, agentId, configHash);
       }
       
       changesMade = true;
@@ -1236,10 +1173,9 @@ async function pushAgents(agentName?: string, dryRun = false): Promise<void> {
     }
   }
   
-  // Save lock file if changes were made
-  if (changesMade && !dryRun) {
-    await saveLockFile(lockFilePath, lockData);
-    console.log('Updated lock file');
+  // Save updated agents.json if there were changes
+  if (changesMade) {
+    await writeAgentConfig(agentsConfigPath, agentsConfig);
   }
 }
 
@@ -1250,7 +1186,6 @@ async function showStatus(agentName?: string): Promise<void> {
   }
   
   const agentsConfig = await readAgentConfig<AgentsConfig>(agentsConfigPath);
-  const lockData = await loadLockFile(path.resolve(LOCK_FILE));
   
   if (agentsConfig.agents.length === 0) {
     console.log('No agents configured');
@@ -1277,30 +1212,23 @@ async function showStatus(agentName?: string): Promise<void> {
       continue;
     }
     
-    // Get agent ID from lock file
-    const lockedAgent = getAgentFromLock(lockData, agentNameCurrent);
-    const agentId = lockedAgent?.id || 'Not created yet';
-    
     console.log(`\n${agentNameCurrent}`);
-    console.log(`   Agent ID: ${agentId}`);
     console.log(`   Config: ${configPath}`);
+    
+    // Get agent ID from index file
+    const agentId = agentDef.id || 'Not created yet';
+    console.log(`   Agent ID: ${agentId}`);
     
     // Check config file status
     if (await fs.pathExists(configPath)) {
       try {
-        const agentConfig = await readAgentConfig(configPath);
-        const configHash = calculateConfigHash(toSnakeCaseKeys(agentConfig));
-        console.log(`   Config Hash: ${configHash.substring(0, 8)}...`);
+        await readAgentConfig<AgentConfig>(configPath);
         
-        // Check lock status
-        if (lockedAgent) {
-          if (lockedAgent.hash === configHash) {
-            console.log(`   Status: Synced`);
-          } else {
-            console.log(`   Status: Config changed (needs push)`);
-          }
+        // Simple status based on whether ID exists
+        if (agentDef.id) {
+          console.log(`   Status: Created (use push to update)`);
         } else {
-          console.log(`   Status: New (needs push)`);
+          console.log(`   Status: Not pushed yet`);
         }
         
       } catch (error) {
@@ -1454,18 +1382,6 @@ async function pullAgents(options: PullOptions): Promise<void> {
   const agentsConfig = await readAgentConfig<AgentsConfig>(agentsConfigPath);
   const existingAgentNames = new Set(agentsConfig.agents.map(agent => agent.name));
   
-  // Load lock file to check for existing agent IDs
-  const lockFilePath = path.resolve(LOCK_FILE);
-  const lockData = await loadLockFile(lockFilePath);
-  const existingAgentIds = new Set<string>();
-  
-  // Collect all existing agent IDs
-  Object.values(lockData.agents).forEach((agentData: any) => {
-    if (agentData && agentData.id) {
-      existingAgentIds.add(agentData.id);
-    }
-  });
-  
   let newAgentsAdded = 0;
   
   for (const agentMeta of agentsList) {
@@ -1476,12 +1392,6 @@ async function pullAgents(options: PullOptions): Promise<void> {
       continue;
     }
     let agentNameRemote = agentMetaTyped.name;
-    
-    // Skip if agent already exists by ID
-    if (existingAgentIds.has(agentId)) {
-      console.log(`Skipping '${agentNameRemote}' - already exists (ID: ${agentId})`);
-      continue;
-    }
     
     // Check for name conflicts
     if (existingAgentNames.has(agentNameRemote)) {
@@ -1517,7 +1427,7 @@ async function pullAgents(options: PullOptions): Promise<void> {
       const platformSettings = agentDetailsTyped.platformSettings || agentDetailsTyped.platform_settings || {};
       const tags = agentDetailsTyped.tags || [];
       
-      // Create agent config structure
+      // Create agent config structure (without agent_id - it goes in index file)
       const agentConfig: AgentConfig = {
         name: agentNameRemote,
         conversation_config: conversationConfig as AgentConfig['conversation_config'],
@@ -1534,20 +1444,16 @@ async function pullAgents(options: PullOptions): Promise<void> {
       await fs.ensureDir(path.dirname(configFilePath));
       await writeAgentConfig(configFilePath, agentConfig);
       
-      // Create new agent entry for agents.json
+      // Create new agent entry for agents.json with ID
       const newAgent: AgentDefinition = {
         name: agentNameRemote,
-        config: configPath
+        config: configPath,
+        id: agentId
       };
       
       // Add to agents config
       agentsConfig.agents.push(newAgent);
       existingAgentNames.add(agentNameRemote);
-      existingAgentIds.add(agentId);
-      
-      // Update lock file with agent ID
-      const configHash = calculateConfigHash(toSnakeCaseKeys(agentConfig));
-      updateAgentInLock(lockData, agentNameRemote, agentId, configHash);
       
       console.log(`Added '${agentNameRemote}' (config: ${configPath})`);
       newAgentsAdded++;
@@ -1562,19 +1468,11 @@ async function pullAgents(options: PullOptions): Promise<void> {
     // Save updated agents.json
     await writeAgentConfig(agentsConfigPath, agentsConfig);
     
-    // Save updated lock file
-    await saveLockFile(lockFilePath, lockData);
-    
-    console.log(`Updated ${AGENTS_CONFIG_FILE} and ${LOCK_FILE}`);
+    console.log(`Updated ${AGENTS_CONFIG_FILE}`);
   }
   
   if (options.dryRun) {
-    const newAgentsCount = agentsList.filter((a: unknown) => {
-      const agent = a as { agentId?: string; agent_id?: string };
-      const id = agent.agentId || agent.agent_id;
-      return id && !existingAgentIds.has(id);
-    }).length;
-    console.log(`[DRY RUN] Would add ${newAgentsCount} new agent(s)`);
+    console.log(`[DRY RUN] Would add ${agentsList.length} agent(s)`);
   } else {
     console.log(`Successfully added ${newAgentsAdded} new agent(s)`);
     if (newAgentsAdded > 0) {
@@ -1624,18 +1522,6 @@ async function pullTools(options: PullToolsOptions): Promise<void> {
 
   const existingToolNames = new Set(toolsConfig.tools.map(tool => tool.name));
 
-  // Load tools lock file to check for existing tool IDs
-  const lockFilePath = path.resolve('tools-lock.json');
-  const toolsLockData = await loadToolsLockFile(lockFilePath);
-  const existingToolIds = new Set<string>();
-
-  // Collect all existing tool IDs
-  Object.values(toolsLockData.tools).forEach(toolData => {
-    if (toolData.id) {
-      existingToolIds.add(toolData.id);
-    }
-  });
-
   let newToolsAdded = 0;
 
   for (const toolMeta of filteredTools) {
@@ -1646,12 +1532,6 @@ async function pullTools(options: PullToolsOptions): Promise<void> {
       continue;
     }
     let toolNameRemote = toolMetaTyped.name;
-
-    // Skip if tool already exists by ID
-    if (existingToolIds.has(toolId)) {
-      console.log(`Skipping '${toolNameRemote}' - already exists (ID: ${toolId})`);
-      continue;
-    }
 
     // Check for name conflicts
     if (existingToolNames.has(toolNameRemote)) {
@@ -1678,7 +1558,7 @@ async function pullTools(options: PullToolsOptions): Promise<void> {
       const safeName = toolNameRemote.toLowerCase().replace(/\s+/g, '_').replace(/[[\]]/g, '');
       const configPath = `${options.outputDir}/${safeName}.json`;
 
-      // Create config file
+      // Create config file (without tool_id - it goes in index file)
       const configFilePath = path.resolve(configPath);
       await fs.ensureDir(path.dirname(configFilePath));
       await writeToolConfig(configFilePath, toolDetails as Tool);
@@ -1687,21 +1567,17 @@ async function pullTools(options: PullToolsOptions): Promise<void> {
       const toolDetailsTyped = toolDetails as { type?: string };
       const toolType = toolDetailsTyped.type || 'unknown';
 
-      // Create new tool entry for tools.json
+      // Create new tool entry for tools.json with ID
       const newTool: ToolDefinition = {
         name: toolNameRemote,
         type: toolType as 'webhook' | 'client',
-        config: configPath
+        config: configPath,
+        id: toolId
       };
 
       // Add to tools config
       toolsConfig.tools.push(newTool);
       existingToolNames.add(toolNameRemote);
-      existingToolIds.add(toolId);
-
-      // Update tools lock file with tool ID
-      const configHash = calculateConfigHash(toolDetails);
-      updateToolInLock(toolsLockData, toolNameRemote, toolId, configHash);
 
       console.log(`Added '${toolNameRemote}' (config: ${configPath}, type: ${toolType})`);
       newToolsAdded++;
@@ -1716,19 +1592,11 @@ async function pullTools(options: PullToolsOptions): Promise<void> {
     // Save updated tools.json
     await writeToolsConfig(toolsConfigPath, toolsConfig);
 
-    // Save updated tools lock file
-    await saveToolsLockFile(lockFilePath, toolsLockData);
-
-    console.log(`Updated ${TOOLS_CONFIG_FILE} and tools-lock.json`);
+    console.log(`Updated ${TOOLS_CONFIG_FILE}`);
   }
 
   if (options.dryRun) {
-    const newToolsCount = filteredTools.filter((t: unknown) => {
-      const tool = t as { tool_id?: string; toolId?: string; id?: string };
-      const id = tool.tool_id || tool.toolId || tool.id;
-      return id && !existingToolIds.has(id);
-    }).length;
-    console.log(`[DRY RUN] Would add ${newToolsCount} new tool(s)`);
+    console.log(`[DRY RUN] Would add ${filteredTools.length} tool(s)`);
   } else {
     console.log(`Successfully added ${newToolsAdded} new tool(s)`);
     if (newToolsAdded > 0) {
@@ -1744,26 +1612,26 @@ async function generateWidget(name: string): Promise<void> {
     throw new Error('agents.json not found. Run \'agents init\' first.');
   }
   
-  // Load lock file to get agent ID
-  const lockFilePath = path.resolve(LOCK_FILE);
-  const lockData = await loadLockFile(lockFilePath);
-  
   // Check if agent exists in config
   const agentsConfig = await readAgentConfig<AgentsConfig>(agentsConfigPath);
-  const agentExists = agentsConfig.agents.some(agent => agent.name === name);
+  const agentDef = agentsConfig.agents.find(agent => agent.name === name);
   
-  if (!agentExists) {
+  if (!agentDef) {
     throw new Error(`Agent '${name}' not found in configuration`);
   }
   
-  // Get agent data from lock file
-  const lockedAgent = getAgentFromLock(lockData, name);
-  
-  if (!lockedAgent?.id) {
-    throw new Error(`Agent '${name}' not found or not yet pushed. Run 'agents push --agent ${name}' to create the agent first`);
+  // Get agent ID from config file
+  const configPath = agentDef.config;
+  if (!configPath || !(await fs.pathExists(configPath))) {
+    throw new Error(`Config file not found for agent '${name}': ${configPath}`);
   }
   
-  const agentId = lockedAgent.id;
+  const agentConfig = await readAgentConfig<AgentConfig>(configPath);
+  const agentId = agentConfig.agent_id;
+  
+  if (!agentId) {
+    throw new Error(`Agent '${name}' not found or not yet pushed. Run 'agents push --agent ${name}' to create the agent first`);
+  }
   
   const residency = await getResidency();
   
@@ -1803,16 +1671,12 @@ async function addTest(name: string, templateType: string = "basic-llm", skipUpl
     console.log(`Created ${TESTS_CONFIG_FILE}`);
   }
 
-  // Load lock file
-  const lockFilePath = path.resolve(LOCK_FILE);
-  const lockData = await loadLockFile(lockFilePath);
-
   // Check if test already exists
   const existingTest = testsConfig.tests.find(test => test.name === name);
-  const lockedTest = getTestFromLock(lockData, name);
 
-  if (existingTest && lockedTest?.id) {
-    console.error(`Test '${name}' already exists`);
+  if (existingTest && existingTest.id) {
+    // Check if the test already has an ID in the index file
+    console.error(`Test '${name}' already exists with ID: ${existingTest.id}`);
     process.exit(1);
   }
 
@@ -1858,10 +1722,12 @@ async function addTest(name: string, templateType: string = "basic-llm", skipUpl
 
     console.log(`Created test in ElevenLabs with ID: ${testId}`);
 
-    // Update lock file
-    const configHash = calculateConfigHash(testApiConfig);
-    updateTestInLock(lockData, name, testId, configHash);
-    await saveLockFile(lockFilePath, lockData);
+    // Store test ID in index file
+    const testDef = testsConfig.tests.find(t => t.name === name);
+    if (testDef) {
+      testDef.id = testId;
+      await writeAgentConfig(testsConfigPath, testsConfig);
+    }
 
     console.log(`Edit ${configPath} to customize your test, then run 'agents push-tests' to update`);
 
@@ -1879,8 +1745,6 @@ async function pushTests(testName?: string, dryRun = false): Promise<void> {
   }
 
   const testsConfig = await readAgentConfig<TestsConfig>(testsConfigPath);
-  const lockFilePath = path.resolve(LOCK_FILE);
-  const lockData = await loadLockFile(lockFilePath);
 
   // Initialize ElevenLabs client
   let client;
@@ -1918,28 +1782,11 @@ async function pushTests(testName?: string, dryRun = false): Promise<void> {
       continue;
     }
 
-    // Calculate config hash
-    const configHash = calculateConfigHash(toSnakeCaseKeys(testConfig));
+    // Get test ID from index file
+    const testId = testDef.id;
 
-    // Get test data from lock file
-    const lockedTest = getTestFromLock(lockData, testDefName);
-
-    let needsUpdate = true;
-
-    if (lockedTest) {
-      if (lockedTest.hash === configHash) {
-        needsUpdate = false;
-        console.log(`${testDefName}: No changes`);
-      } else {
-        console.log(`${testDefName}: Config changed, will update`);
-      }
-    } else {
-      console.log(`${testDefName}: New test detected, will create`);
-    }
-
-    if (!needsUpdate) {
-      continue;
-    }
+    // Always push (force override)
+    console.log(`${testDefName}: Will push (force override)`);
 
     if (dryRun) {
       console.log(`[DRY RUN] Would update test: ${testDefName}`);
@@ -1948,7 +1795,6 @@ async function pushTests(testName?: string, dryRun = false): Promise<void> {
 
     // Perform API operation
     try {
-      const testId = lockedTest?.id;
       const testApiConfig = toCamelCaseKeys(testConfig) as unknown as ElevenLabs.conversationalAi.CreateUnitTestRequest;
 
       if (!testId) {
@@ -1956,12 +1802,14 @@ async function pushTests(testName?: string, dryRun = false): Promise<void> {
         const response = await createTestApi(client!, testApiConfig);
         const newTestId = response.id;
         console.log(`Created test ${testDefName} (ID: ${newTestId})`);
-        updateTestInLock(lockData, testDefName, newTestId, configHash);
+        
+        // Store test ID in index file
+        testDef.id = newTestId;
+        changesMade = true;
       } else {
         // Update existing test
         await updateTestApi(client!, testId, testApiConfig as ElevenLabs.conversationalAi.UpdateUnitTestRequest);
         console.log(`Updated test ${testDefName} (ID: ${testId})`);
-        updateTestInLock(lockData, testDefName, testId, configHash);
       }
 
       changesMade = true;
@@ -1970,11 +1818,10 @@ async function pushTests(testName?: string, dryRun = false): Promise<void> {
       console.log(`Error processing ${testDefName}: ${error}`);
     }
   }
-
-  // Save lock file if changes were made
-  if (changesMade && !dryRun) {
-    await saveLockFile(lockFilePath, lockData);
-    console.log('Updated lock file');
+  
+  // Save updated tests.json if there were changes
+  if (changesMade) {
+    await writeAgentConfig(testsConfigPath, testsConfig);
   }
 }
 
@@ -1986,8 +1833,6 @@ async function pushTools(toolName?: string, dryRun = false): Promise<void> {
   }
 
   const toolsConfig = await readToolsConfig(toolsConfigPath);
-  const lockFilePath = path.resolve(LOCK_FILE);
-  const lockData = await loadLockFile(lockFilePath);
 
   // Initialize ElevenLabs client
   let client;
@@ -2030,28 +1875,11 @@ async function pushTools(toolName?: string, dryRun = false): Promise<void> {
       continue;
     }
 
-    // Calculate config hash
-    const configHash = calculateConfigHash(toSnakeCaseKeys(toolConfig));
+    // Get tool ID from index file
+    const toolId = toolDef.id;
 
-    // Get tool data from lock file
-    const lockedTool = getToolFromLock(lockData, toolDefName);
-
-    let needsUpdate = true;
-
-    if (lockedTool) {
-      if (lockedTool.hash === configHash) {
-        needsUpdate = false;
-        console.log(`${toolDefName}: No changes`);
-      } else {
-        console.log(`${toolDefName}: Config changed, will update`);
-      }
-    } else {
-      console.log(`${toolDefName}: New tool detected, will create`);
-    }
-
-    if (!needsUpdate) {
-      continue;
-    }
+    // Always push (force override)
+    console.log(`${toolDefName}: Will push (force override)`);
 
     if (dryRun) {
       console.log(`[DRY RUN] Would update tool: ${toolDefName}`);
@@ -2060,19 +1888,19 @@ async function pushTools(toolName?: string, dryRun = false): Promise<void> {
 
     // Perform API operation
     try {
-      const toolId = lockedTool?.id;
-
       if (!toolId) {
         // Create new tool
         const response = await createToolApi(client!, toolConfig);
         const newToolId = (response as { toolId?: string }).toolId || `tool_${Date.now()}`;
         console.log(`Created tool ${toolDefName} (ID: ${newToolId})`);
-        updateToolInLock(lockData, toolDefName, newToolId, configHash);
+        
+        // Store tool ID in index file
+        toolDef.id = newToolId;
+        changesMade = true;
       } else {
         // Update existing tool
         await updateToolApi(client!, toolId, toolConfig);
         console.log(`Updated tool ${toolDefName} (ID: ${toolId})`);
-        updateToolInLock(lockData, toolDefName, toolId, configHash);
       }
 
       changesMade = true;
@@ -2081,11 +1909,10 @@ async function pushTools(toolName?: string, dryRun = false): Promise<void> {
       console.log(`Error processing ${toolDefName}: ${error}`);
     }
   }
-
-  // Save lock file if changes were made
-  if (changesMade && !dryRun) {
-    await saveLockFile(lockFilePath, lockData);
-    console.log('Updated lock file');
+  
+  // Save updated tools.json if there were changes
+  if (changesMade) {
+    await writeToolsConfig(toolsConfigPath, toolsConfig);
   }
 }
 
@@ -2118,18 +1945,6 @@ async function pullTests(options: { outputDir: string; dryRun: boolean }): Promi
   // Load existing config
   const existingTestNames = new Set(testsConfig.tests.map(test => test.name));
 
-  // Load lock file to check for existing test IDs
-  const lockFilePath = path.resolve(LOCK_FILE);
-  const lockData = await loadLockFile(lockFilePath);
-  const existingTestIds = new Set<string>();
-
-  // Collect all existing test IDs
-  Object.values(lockData.tests || {}).forEach(testData => {
-    if (testData.id) {
-      existingTestIds.add(testData.id);
-    }
-  });
-
   let newTestsAdded = 0;
 
   for (const testMeta of testsList) {
@@ -2140,12 +1955,6 @@ async function pullTests(options: { outputDir: string; dryRun: boolean }): Promi
       continue;
     }
     let testNameRemote = testMetaTyped.name;
-
-    // Skip if test already exists by ID
-    if (existingTestIds.has(testId)) {
-      console.log(`Skipping '${testNameRemote}' - already exists (ID: ${testId})`);
-      continue;
-    }
 
     // Check for name conflicts
     if (existingTestNames.has(testNameRemote)) {
@@ -2172,25 +1981,21 @@ async function pullTests(options: { outputDir: string; dryRun: boolean }): Promi
       const safeName = testNameRemote.toLowerCase().replace(/\s+/g, '_').replace(/[[\]]/g, '');
       const configPath = `${options.outputDir}/${safeName}.json`;
 
-      // Create config file
+      // Create config file (without test ID - it goes in index file)
       const configFilePath = path.resolve(configPath);
       await fs.ensureDir(path.dirname(configFilePath));
       await writeAgentConfig(configFilePath, testDetails);
 
-      // Create new test entry for tests.json
+      // Create new test entry for tests.json with ID
       const newTest: TestDefinition = {
         name: testNameRemote,
-        config: configPath
+        config: configPath,
+        id: testId
       };
 
       // Add to tests config
       testsConfig.tests.push(newTest);
       existingTestNames.add(testNameRemote);
-      existingTestIds.add(testId);
-
-      // Update lock file with test ID
-      const configHash = calculateConfigHash(toSnakeCaseKeys(testDetails));
-      updateTestInLock(lockData, testNameRemote, testId, configHash);
 
       console.log(`Added '${testNameRemote}' (config: ${configPath})`);
       newTestsAdded++;
@@ -2205,18 +2010,11 @@ async function pullTests(options: { outputDir: string; dryRun: boolean }): Promi
     // Save updated tests.json
     await writeAgentConfig(testsConfigPath, testsConfig);
 
-    // Save updated lock file
-    await saveLockFile(lockFilePath, lockData);
-
-    console.log(`Updated ${TESTS_CONFIG_FILE} and ${LOCK_FILE}`);
+    console.log(`Updated ${TESTS_CONFIG_FILE}`);
   }
 
   if (options.dryRun) {
-    const newTestsCount = testsList.filter((t: unknown) => {
-      const test = t as { id?: string };
-      return test.id && !existingTestIds.has(test.id);
-    }).length;
-    console.log(`[DRY RUN] Would add ${newTestsCount} new test(s)`);
+    console.log(`[DRY RUN] Would add ${testsList.length} test(s)`);
   } else {
     console.log(`Successfully added ${newTestsAdded} new test(s)`);
     if (newTestsAdded > 0) {
@@ -2239,17 +2037,6 @@ async function runAgentTestsWithUI(agentName: string): Promise<void> {
     throw new Error(`Agent '${agentName}' not found in configuration`);
   }
 
-  // Get agent ID from lock file
-  const lockFilePath = path.resolve(LOCK_FILE);
-  const lockData = await loadLockFile(lockFilePath);
-  const lockedAgent = getAgentFromLock(lockData, agentName);
-
-  if (!lockedAgent?.id) {
-    throw new Error(`Agent '${agentName}' not found or not yet pushed. Run 'agents push --agent ${agentName}' to create the agent first`);
-  }
-
-  const agentId = lockedAgent.id;
-
   // Get agent config to find attached tests
   const configPath = agentDef.config;
 
@@ -2258,6 +2045,12 @@ async function runAgentTestsWithUI(agentName: string): Promise<void> {
   }
 
   const agentConfig = await readAgentConfig<AgentConfig>(configPath);
+  const agentId = agentConfig.agent_id;
+  
+  if (!agentId) {
+    throw new Error(`Agent '${agentName}' not found or not yet pushed. Run 'agents push --agent ${agentName}' to create the agent first`);
+  }
+  
   const attachedTests = agentConfig.platform_settings?.testing?.attached_tests || [];
 
   if (attachedTests.length === 0) {

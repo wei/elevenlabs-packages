@@ -4,9 +4,8 @@ import App from '../App.js';
 import theme from '../themes/elevenlabs.js';
 import path from 'path';
 import fs from 'fs-extra';
-import { readAgentConfig, loadLockFile, saveLockFile, calculateConfigHash, updateAgentInLock, toSnakeCaseKeys } from '../../utils.js';
+import { readAgentConfig, writeAgentConfig } from '../../utils.js';
 import { getElevenLabsClient, listAgentsApi, getAgentApi } from '../../elevenlabs-api.js';
-import { writeAgentConfig } from '../../utils.js';
 
 interface PullAgent {
   name: string;
@@ -62,17 +61,6 @@ export const PullView: React.FC<PullViewProps> = ({
         const agentsConfig = await readAgentConfig<any>(agentsConfigPath);
         const existingAgentNames = new Set<string>(agentsConfig.agents.map((a: any) => a.name as string));
 
-        // Load lock file
-        const lockFilePath = path.resolve('agents.lock');
-        const lockData = await loadLockFile(lockFilePath);
-        const existingAgentIds = new Set<string>();
-
-        Object.values(lockData.agents).forEach((agentData: any) => {
-          if (agentData && agentData.id) {
-            existingAgentIds.add(agentData.id);
-          }
-        });
-
         // Prepare agents for display
         const agentsToPull: PullAgent[] = [];
         for (const agentMeta of agentsList) {
@@ -81,14 +69,11 @@ export const PullView: React.FC<PullViewProps> = ({
           
           if (!agentId) continue;
 
-          const status = existingAgentIds.has(agentId) ? 'skipped' : 'pending';
-          const message = existingAgentIds.has(agentId) ? 'Already exists' : undefined;
-
           agentsToPull.push({
             name: agentMetaTyped.name,
             agentId,
-            status: status as 'skipped' | 'pending',
-            message
+            status: 'pending',
+            message: undefined
           });
         }
 
@@ -97,7 +82,7 @@ export const PullView: React.FC<PullViewProps> = ({
         // Start processing if there are agents to pull
         if (agentsToPull.some(a => a.status === 'pending')) {
           // eslint-disable-next-line @typescript-eslint/no-floating-promises
-          processNextAgent(agentsToPull, 0, agentsConfig, existingAgentNames, existingAgentIds, lockData, agentsConfigPath, lockFilePath);
+          processNextAgent(agentsToPull, 0, agentsConfig, existingAgentNames, agentsConfigPath);
         } else {
           setComplete(true);
           setTimeout(() => {
@@ -120,16 +105,12 @@ export const PullView: React.FC<PullViewProps> = ({
     index: number,
     agentsConfig: any,
     existingNames: Set<string>,
-    existingIds: Set<string>,
-    lockData: any,
-    agentsConfigPath: string,
-    lockFilePath: string
+    agentsConfigPath: string
   ): Promise<void> => {
     if (index >= agentsList.length) {
       // Save files after all agents are processed (if not dry run)
       if (!dryRun) {
         await writeAgentConfig(agentsConfigPath, agentsConfig);
-        await saveLockFile(lockFilePath, lockData);
       }
       setComplete(true);
       setTimeout(() => {
@@ -140,13 +121,6 @@ export const PullView: React.FC<PullViewProps> = ({
     }
 
     const agent = agentsList[index];
-
-    // Skip if already exists
-    if (agent.status === 'skipped') {
-      setCurrentIndex(index + 1);
-      processNextAgent(agentsList, index + 1, agentsConfig, existingNames, existingIds, lockData, agentsConfigPath, lockFilePath);
-      return;
-    }
 
     // Update to checking
     setAgents(prev => prev.map((a, i) => i === index ? { ...a, status: 'checking' as const } : a));
@@ -188,6 +162,7 @@ export const PullView: React.FC<PullViewProps> = ({
         const platformSettings = agentDetailsTyped.platformSettings || agentDetailsTyped.platform_settings || {};
         const tags = agentDetailsTyped.tags || [];
 
+        // Create agent config structure (without agent_id - it goes in index file)
         const agentConfig = {
           name: agentName,
           conversation_config: conversationConfig,
@@ -204,17 +179,13 @@ export const PullView: React.FC<PullViewProps> = ({
         await fs.ensureDir(path.dirname(configFilePath));
         await writeAgentConfig(configFilePath, agentConfig);
 
-        // Add to agents config
+        // Add to agents config with ID
         agentsConfig.agents.push({
           name: agentName,
-          config: configPath
+          config: configPath,
+          id: agent.agentId
         });
         existingNames.add(agentName);
-        existingIds.add(agent.agentId);
-
-        // Update lock file
-        const configHash = calculateConfigHash(toSnakeCaseKeys(agentConfig));
-        updateAgentInLock(lockData, agentName, agent.agentId, configHash);
 
         setAgents(prev => prev.map((a, i) => 
           i === index ? { 
@@ -227,7 +198,7 @@ export const PullView: React.FC<PullViewProps> = ({
       }
 
       setCurrentIndex(index + 1);
-      processNextAgent(agentsList, index + 1, agentsConfig, existingNames, existingIds, lockData, agentsConfigPath, lockFilePath);
+      processNextAgent(agentsList, index + 1, agentsConfig, existingNames, agentsConfigPath);
 
     } catch (err) {
       setAgents(prev => prev.map((a, i) => 
@@ -238,7 +209,7 @@ export const PullView: React.FC<PullViewProps> = ({
         } : a
       ));
       setCurrentIndex(index + 1);
-      processNextAgent(agentsList, index + 1, agentsConfig, existingNames, existingIds, lockData, agentsConfigPath, lockFilePath);
+      processNextAgent(agentsList, index + 1, agentsConfig, existingNames, agentsConfigPath);
     }
   };
 

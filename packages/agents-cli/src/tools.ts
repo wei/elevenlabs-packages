@@ -18,6 +18,8 @@ export interface WebhookToolSchema {
 }
 
 export interface WebhookTool {
+  // Note: tool_id is now stored in tools.json, not in individual config files
+  tool_id?: string; // @deprecated - for backwards compatibility only
   name: string;
   description: string;
   type: 'webhook';
@@ -52,6 +54,8 @@ export interface ClientToolParameter {
 }
 
 export interface ClientTool {
+  // Note: tool_id is now stored in tools.json, not in individual config files
+  tool_id?: string; // @deprecated - for backwards compatibility only
   name: string;
   description: string;
   type: 'client';
@@ -69,19 +73,11 @@ export interface ToolDefinition {
   name: string;
   type: 'webhook' | 'client';
   config?: string;
+  id?: string;
 }
 
 export interface ToolsConfig {
   tools: ToolDefinition[];
-}
-
-export interface ToolLockData {
-  id: string;
-  hash: string;
-}
-
-export interface ToolsLockFile {
-  tools: Record<string, ToolLockData>;
 }
 
 /**
@@ -213,64 +209,6 @@ export async function writeToolsConfig(filePath: string, config: ToolsConfig): P
   } catch (error) {
     throw new Error(`Could not write tools configuration file to ${filePath}: ${error}`);
   }
-}
-
-/**
- * Loads the tools lock file
- */
-export async function loadToolsLockFile(lockFilePath: string): Promise<ToolsLockFile> {
-  try {
-    const exists = await fs.pathExists(lockFilePath);
-    if (!exists) {
-      return { tools: {} };
-    }
-
-    const data = await fs.readFile(lockFilePath, 'utf-8');
-    const parsed = JSON.parse(data);
-    
-    return parsed;
-  } catch (error) {
-    console.warn(`Warning: Could not read tools lock file ${lockFilePath}. Initializing with empty tool list.`);
-    return { tools: {} };
-  }
-}
-
-/**
- * Saves the tools lock file
- */
-export async function saveToolsLockFile(lockFilePath: string, lockData: ToolsLockFile): Promise<void> {
-  try {
-    const directory = path.dirname(lockFilePath);
-    if (directory) {
-      await fs.ensureDir(directory);
-    }
-
-    await fs.writeFile(lockFilePath, JSON.stringify(lockData, null, 4), 'utf-8');
-  } catch (error) {
-    throw new Error(`Could not write tools lock file to ${lockFilePath}: ${error}`);
-  }
-}
-
-/**
- * Updates a tool in the lock file
- */
-export function updateToolInLock(
-  lockData: ToolsLockFile,
-  toolName: string,
-  toolId: string,
-  configHash: string
-): void {
-  lockData.tools[toolName] = {
-    id: toolId,
-    hash: configHash
-  };
-}
-
-/**
- * Gets a tool from the lock file
- */
-export function getToolFromLock(lockData: ToolsLockFile, toolName: string): ToolLockData | undefined {
-  return lockData.tools[toolName];
 }
 
 /**
