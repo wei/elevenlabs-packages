@@ -15,7 +15,6 @@ import fs from 'fs-extra';
 interface AddAgentViewProps {
   initialName?: string;
   template?: string;
-  skipUpload?: boolean;
   onComplete?: () => void;
 }
 
@@ -24,7 +23,6 @@ type Step = 'name' | 'template' | 'confirm' | 'creating';
 export const AddAgentView: React.FC<AddAgentViewProps> = ({ 
   initialName,
   template = 'default',
-  skipUpload = false,
   onComplete 
 }) => {
   const { exit } = useApp();
@@ -60,54 +58,53 @@ export const AddAgentView: React.FC<AddAgentViewProps> = ({
     setError(null);
 
     try {
-      // Step 1: Generate config
+      // Step 1: Generate config (in memory)
       setStatusMessage('Generating agent configuration...');
       const agentConfig = getTemplateByName(agentName, selectedTemplate);
       
-      // Step 2: Create directory
+      // Step 2: Upload to ElevenLabs first to get ID
+      setStatusMessage('Creating agent in ElevenLabs...');
+      const client = await getElevenLabsClient();
+      const conversationConfig = agentConfig.conversation_config || {};
+      const platformSettings = agentConfig.platform_settings;
+      const tags = agentConfig.tags || [];
+      const agentId = await createAgentApi(
+        client,
+        agentName,
+        conversationConfig,
+        platformSettings,
+        tags
+      );
+      
+      if (agentId) {
+        setStatusMessage(`Agent created with ID: ${agentId}`);
+      }
+      
+      // Step 3: Create directory
       setStatusMessage('Creating agent directory...');
       const configDir = path.resolve(`agent_configs`);
       await fs.ensureDir(configDir);
       
-      // Step 3: Write config file
+      // Step 4: Write config file using agent ID
       setStatusMessage('Writing configuration file...');
-      const configPath = path.join(configDir, `${agentName}.json`);
+      const configPath = path.join(configDir, `${agentId}.json`);
       await writeAgentConfig(configPath, agentConfig);
       
-      // Step 4: Update agents.json
+      // Step 5: Update agents.json
       setStatusMessage('Updating agents.json...');
       const agentsConfigPath = path.resolve('agents.json');
       const agentsConfig = await fs.readJson(agentsConfigPath);
       
-      const relativeConfigPath = `agent_configs/${agentName}.json`;
+      const relativeConfigPath = `agent_configs/${agentId}.json`;
       
-      // Add new agent
+      // Add new agent with ID
       agentsConfig.agents.push({
         name: agentName,
-        config: relativeConfigPath
+        config: relativeConfigPath,
+        id: agentId
       });
       
       await fs.writeJson(agentsConfigPath, agentsConfig, { spaces: 2 });
-      
-      // Step 5: Upload to ElevenLabs (if not skipped)
-      if (!skipUpload) {
-        setStatusMessage('Uploading to ElevenLabs...');
-        const client = await getElevenLabsClient();
-        const conversationConfig = agentConfig.conversation_config || {};
-        const platformSettings = agentConfig.platform_settings;
-        const tags = agentConfig.tags || [];
-        const agentId = await createAgentApi(
-          client,
-          agentName,
-          conversationConfig,
-          platformSettings,
-          tags
-        );
-        
-        if (agentId) {
-          setStatusMessage(`Agent created with ID: ${agentId}`);
-        }
-      }
       
       setSuccess(true);
       
@@ -190,7 +187,7 @@ export const AddAgentView: React.FC<AddAgentViewProps> = ({
                 • Template: <Text color={theme.colors.accent.primary}>{selectedTemplate}</Text>
               </Text>
               <Text color={theme.colors.text.secondary}>
-                • Upload to ElevenLabs: <Text color={theme.colors.accent.primary}>{skipUpload ? 'No' : 'Yes'}</Text>
+                • Upload to ElevenLabs: <Text color={theme.colors.accent.primary}>Yes</Text>
               </Text>
             </Box>
             <Box marginTop={2}>
