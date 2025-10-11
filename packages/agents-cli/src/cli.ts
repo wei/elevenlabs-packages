@@ -23,6 +23,7 @@ import {
   updateAgentApi,
   listAgentsApi,
   getAgentApi,
+  deleteAgentApi,
   createToolApi,
   updateToolApi,
   listToolsApi,
@@ -706,6 +707,19 @@ program
       }
     } catch (error) {
       console.error(`Error listing agents: ${error}`);
+      process.exit(1);
+    }
+  });
+
+program
+  .command('delete')
+  .description('Delete an agent locally and from ElevenLabs')
+  .argument('<agent_id>', 'ID of the agent to delete')
+  .action(async (agentId: string) => {
+    try {
+      await deleteAgent(agentId);
+    } catch (error) {
+      console.error(`Error deleting agent: ${error}`);
       process.exit(1);
     }
   });
@@ -2031,6 +2045,54 @@ async function runAgentTests(agentName: string): Promise<void> {
   throw new Error('Non-UI test running not yet implemented. Use --ui mode.');
 }
 
+async function deleteAgent(agentId: string): Promise<void> {
+  // Load agents configuration
+  const agentsConfigPath = path.resolve(AGENTS_CONFIG_FILE);
+  if (!(await fs.pathExists(agentsConfigPath))) {
+    throw new Error('agents.json not found. Run \'agents init\' first.');
+  }
+
+  const agentsConfig = await readAgentConfig<AgentsConfig>(agentsConfigPath);
+  
+  // Find the agent by ID
+  const agentIndex = agentsConfig.agents.findIndex(agent => agent.id === agentId);
+  
+  if (agentIndex === -1) {
+    throw new Error(`Agent with ID '${agentId}' not found in local configuration`);
+  }
+  
+  const agentDef = agentsConfig.agents[agentIndex];
+  const agentName = agentDef.name;
+  const configPath = agentDef.config;
+  
+  console.log(`Deleting agent '${agentName}' (ID: ${agentId})...`);
+  
+  // Delete from ElevenLabs (globally)
+  console.log('Deleting from ElevenLabs...');
+  const client = await getElevenLabsClient();
+  
+  try {
+    await deleteAgentApi(client, agentId);
+    console.log('✓ Successfully deleted from ElevenLabs');
+  } catch (error) {
+    console.error(`Warning: Failed to delete from ElevenLabs: ${error}`);
+    console.log('Continuing with local deletion...');
+  }
+  
+  // Remove from local agents.json
+  agentsConfig.agents.splice(agentIndex, 1);
+  await writeAgentConfig(agentsConfigPath, agentsConfig);
+  console.log(`✓ Removed '${agentName}' from ${AGENTS_CONFIG_FILE}`);
+  
+  // Remove config file
+  if (configPath && await fs.pathExists(configPath)) {
+    await fs.remove(configPath);
+    console.log(`✓ Deleted config file: ${configPath}`);
+  }
+  
+  console.log(`\n✓ Successfully deleted agent '${agentName}'`);
+}
+
 // Handle SIGINT (Ctrl+C)
 process.on('SIGINT', () => {
   console.log('\nExiting...');
@@ -2048,15 +2110,47 @@ if (args.length === 0 || args.includes('--help') || args.includes('-h')) {
     process.exit(0);
   })();
 } else {
-  // Special handling for 'add' command without subcommand
+  // Special handling for 'add' command without name argument
   if (args[0] === 'add' && (args.length === 1 || args[1].startsWith('-'))) {
+    console.error('Error: Missing required argument');
+    console.error('Usage: agents add <name> [options]');
+    console.error('');
+    console.error('Example:');
+    console.error('  agents add "My Agent"');
+    console.error('  agents add "My Agent" --template advanced');
+    console.error('');
+    console.error('For other commands, see:');
+    console.error('  agents add-webhook-tool <name>');
+    console.error('  agents add-client-tool <name>');
+    process.exit(1);
+  }
+
+  // Special handling for 'templates' command without subcommand
+  if (args[0] === 'templates' && (args.length === 1 || args[1].startsWith('-'))) {
     console.error('Error: Missing required subcommand');
-    console.error('Usage: agents add <agent|webhook-tool|client-tool> [options]');
+    console.error('Usage: agents templates <list|show>');
     console.error('');
     console.error('Available subcommands:');
-    console.error('  agent          Add a new agent');
-    console.error('  webhook-tool   Add a new webhook tool');
-    console.error('  client-tool    Add a new client tool');
+    console.error('  list                List available agent templates');
+    console.error('  show <template>     Show configuration for a specific template');
+    console.error('');
+    console.error('Examples:');
+    console.error('  agents templates list');
+    console.error('  agents templates show default');
+    process.exit(1);
+  }
+
+  // Special handling for 'components' command without subcommand
+  if (args[0] === 'components' && (args.length === 1 || args[1].startsWith('-'))) {
+    console.error('Error: Missing required subcommand');
+    console.error('Usage: agents components <add>');
+    console.error('');
+    console.error('Available subcommands:');
+    console.error('  add [name]     Add a component from ElevenLabs UI registry');
+    console.error('');
+    console.error('Examples:');
+    console.error('  agents components add');
+    console.error('  agents components add button');
     process.exit(1);
   }
 
