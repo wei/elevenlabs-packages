@@ -15,6 +15,7 @@ import {
 } from '../../tools.js';
 import path from 'path';
 import fs from 'fs-extra';
+import { generateUniqueFilename } from '../../utils.js';
 
 interface PullTool {
   name: string;
@@ -80,7 +81,7 @@ export const PullToolsView: React.FC<PullToolsViewProps> = ({
         let filteredTools = toolsList;
         if (searchTerm) {
           filteredTools = toolsList.filter((toolItem: any) => {
-            return toolItem.name?.toLowerCase().includes(searchTerm.toLowerCase());
+            return toolItem.tool_config?.name?.toLowerCase().includes(searchTerm.toLowerCase());
           });
         }
 
@@ -91,9 +92,9 @@ export const PullToolsView: React.FC<PullToolsViewProps> = ({
         const toolsToPull: PullTool[] = filteredTools
           .map((toolItem: any) => {
             const toolId = toolItem.tool_id || toolItem.toolId || toolItem.id;
-            let toolName = toolItem.name;
+            let toolName = toolItem.tool_config?.name;
 
-            if (!toolId) return null;
+            if (!toolId || !toolName) return null;
 
             // Handle name conflicts
             if (existingToolNames.has(toolName)) {
@@ -108,7 +109,7 @@ export const PullToolsView: React.FC<PullToolsViewProps> = ({
             return {
               name: toolName,
               id: toolId,
-              type: toolItem.type,
+              type: toolItem.tool_config?.type || toolItem.type,
               status: 'pending' as const
             };
           })
@@ -179,20 +180,28 @@ export const PullToolsView: React.FC<PullToolsViewProps> = ({
         const client = await getElevenLabsClient();
         const toolDetails = await getToolApi(client, toolToPull.id);
 
-        // Generate config file path using tool ID
-        const configPath = `${outputDir}/${toolToPull.id}.json`;
+        // Extract the tool_config from the response
+        const toolDetailsTyped = toolDetails as { tool_config?: Tool & { type?: string } };
+        const toolConfig = toolDetailsTyped.tool_config;
+        
+        if (!toolConfig) {
+          throw new Error('No tool_config found in response');
+        }
+
+        // Generate config file path using tool name
+        const configPath = await generateUniqueFilename(outputDir, toolToPull.name);
         const configFilePath = path.resolve(configPath);
 
         // Create config file
         await fs.ensureDir(path.dirname(configFilePath));
-        await writeToolConfig(configFilePath, toolDetails as Tool);
+        
+        await writeToolConfig(configFilePath, toolConfig as Tool);
 
         // Update tools.json
         const toolsConfigPath = path.resolve(TOOLS_CONFIG_FILE);
         const toolsConfig = await readToolsConfig(toolsConfigPath);
 
-        const toolDetailsTyped = toolDetails as { type?: string };
-        const toolType = toolDetailsTyped.type || 'unknown';
+        const toolType = toolConfig.type || 'unknown';
 
         const newTool: ToolDefinition = {
           name: toolToPull.name,
