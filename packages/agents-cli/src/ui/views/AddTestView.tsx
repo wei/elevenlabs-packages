@@ -47,7 +47,7 @@ export const AddTestView: React.FC<AddTestViewProps> = ({
   onComplete
 }) => {
   const { exit } = useApp();
-  const [currentStep, setCurrentStep] = useState<StepType>('name');
+  const [currentStep, setCurrentStep] = useState<StepType>(initialName ? 'template' : 'name');
   const [testName, setTestName] = useState(initialName);
   const [selectedTemplate, setSelectedTemplate] = useState<string>('');
   const [userMessage, setUserMessage] = useState('Hello');
@@ -59,6 +59,10 @@ export const AddTestView: React.FC<AddTestViewProps> = ({
   useInput((input, key) => {
     if (key.escape) {
       exit();
+    }
+    
+    if (currentStep === 'confirm' && key.return) {
+      handleConfirm();
     }
   });
 
@@ -128,9 +132,11 @@ export const AddTestView: React.FC<AddTestViewProps> = ({
 
     try {
       const path = await import('path');
-      const fs = await import('fs-extra');
+      const fsModule = await import('fs-extra');
+      const fs = fsModule.default;
       const {
-        writeAgentConfig,
+        writeConfig,
+        readConfig,
       } = await import('../../utils.js');
       const { getTestTemplateByName } = await import('../../test-templates.js');
 
@@ -159,14 +165,14 @@ export const AddTestView: React.FC<AddTestViewProps> = ({
       await fs.ensureDir(path.dirname(configFilePath));
 
       // Write test config file
-      await writeAgentConfig(configFilePath, testConfig);
+      await writeConfig(configFilePath, testConfig);
 
       // Create/update tests.json
       const testsConfigPath = path.resolve('tests.json');
       let testsConfig: { tests: Array<{ name: string; config: string; type: string; id?: string }> };
 
       try {
-        testsConfig = await fs.readJson(testsConfigPath);
+        testsConfig = await readConfig(testsConfigPath);
       } catch {
         testsConfig = { tests: [] };
       }
@@ -189,7 +195,7 @@ export const AddTestView: React.FC<AddTestViewProps> = ({
         });
       }
 
-      await fs.writeJson(testsConfigPath, testsConfig, { spaces: 2 });
+      await writeConfig(testsConfigPath, testsConfig);
 
       setCurrentStep('complete');
 
@@ -202,7 +208,8 @@ export const AddTestView: React.FC<AddTestViewProps> = ({
       }, 2000);
 
     } catch (err) {
-      setError(`Failed to create test: ${err}`);
+      const errorMessage = err instanceof Error ? err.message : String(err);
+      setError(`Failed to create test: ${errorMessage}`);
       setCurrentStep('confirm');
     }
   };
@@ -303,6 +310,11 @@ export const AddTestView: React.FC<AddTestViewProps> = ({
               <Text color={theme.colors.text.primary}>Success Condition: {successCondition}</Text>
               {toolName && <Text color={theme.colors.text.primary}>Tool: {toolName}</Text>}
             </Box>
+            {error && (
+              <Box marginTop={1}>
+                <Text color={theme.colors.error}>{error}</Text>
+              </Box>
+            )}
             <Box marginTop={2}>
               <Text color={theme.colors.text.muted}>Press Enter to create test, or Esc to cancel</Text>
             </Box>
@@ -338,12 +350,6 @@ export const AddTestView: React.FC<AddTestViewProps> = ({
         return null;
     }
   };
-
-  useInput((input, key) => {
-    if (currentStep === 'confirm' && key.return) {
-      handleConfirm();
-    }
-  });
 
   return (
     <App>
