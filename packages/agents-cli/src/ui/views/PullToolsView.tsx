@@ -22,15 +22,17 @@ interface PullTool {
   id: string;
   type?: string;
   status: 'pending' | 'pulling' | 'completed' | 'error' | 'skipped';
+  action?: 'create' | 'update' | 'skip';
   message?: string;
   configPath?: string;
 }
 
 interface PullToolsViewProps {
-  tool?: string;
+  tool?: string; // Tool ID to pull specifically
   outputDir: string;
-  search?: string;
   dryRun?: boolean;
+  update?: boolean;
+  all?: boolean;
   onComplete?: () => void;
 }
 
@@ -39,8 +41,9 @@ const TOOLS_CONFIG_FILE = "tools.json";
 export const PullToolsView: React.FC<PullToolsViewProps> = ({
   tool,
   outputDir = 'tool_configs',
-  search,
   dryRun = false,
+  update,
+  all,
   onComplete
 }) => {
   const { exit } = useApp();
@@ -69,26 +72,47 @@ export const PullToolsView: React.FC<PullToolsViewProps> = ({
         }
 
         const client = await getElevenLabsClient();
-        const toolsList = await listToolsApi(client);
-
-        if (toolsList.length === 0) {
-          setState(prev => ({ ...prev, error: 'No tools found in your ElevenLabs workspace.', loading: false }));
-          return;
-        }
-
-        // Filter tools by search criteria
-        const searchTerm = tool || search;
-        let filteredTools = toolsList;
-        if (searchTerm) {
-          filteredTools = toolsList.filter((toolItem: any) => {
-            return toolItem.tool_config?.name?.toLowerCase().includes(searchTerm.toLowerCase());
-          });
-        }
 
         // Check existing tools
         const existingToolNames = new Set(toolsConfig.tools.map(t => t.name));
+        
+        // Build ID-based map for existing tools
+        const existingToolIds = new Map(
+          toolsConfig.tools.map((tool: ToolDefinition) => [tool.id, tool])
+        );
 
-        // Prepare tools list
+        // Fetch tools - either specific tool by ID or all tools
+        let filteredTools: unknown[];
+        if (tool) {
+          // Pull specific tool by ID
+          const toolDetails = await getToolApi(client, tool);
+          const toolDetailsTyped = toolDetails as { tool_id?: string; toolId?: string; id?: string; tool_config?: { name?: string } };
+          const toolId = toolDetailsTyped.tool_id || toolDetailsTyped.toolId || toolDetailsTyped.id || tool;
+          const toolName = toolDetailsTyped.tool_config?.name;
+          
+          if (!toolName) {
+            setState(prev => ({ ...prev, error: `Tool with ID '${tool}' has no name`, loading: false }));
+            return;
+          }
+          
+          filteredTools = [{
+            tool_id: toolId,
+            toolId: toolId,
+            id: toolId,
+            tool_config: toolDetailsTyped.tool_config
+          }];
+        } else {
+          const toolsList = await listToolsApi(client);
+
+          if (toolsList.length === 0) {
+            setState(prev => ({ ...prev, error: 'No tools found in your ElevenLabs workspace.', loading: false }));
+            return;
+          }
+
+          filteredTools = toolsList;
+        }
+
+        // Prepare tools list with action determination
         const toolsToPull: PullTool[] = filteredTools
           .map((toolItem: any) => {
             const toolId = toolItem.tool_id || toolItem.toolId || toolItem.id;
@@ -96,13 +120,41 @@ export const PullToolsView: React.FC<PullToolsViewProps> = ({
 
             if (!toolId || !toolName) return null;
 
-            // Handle name conflicts
-            if (existingToolNames.has(toolName)) {
-              let counter = 1;
-              const originalName = toolName;
-              while (existingToolNames.has(toolName)) {
-                toolName = `${originalName}_${counter}`;
-                counter++;
+            const existingEntry = existingToolIds.get(toolId);
+            let action: 'create' | 'update' | 'skip';
+            let status: 'pending' | 'skipped' = 'pending';
+
+            if (existingEntry) {
+              // Tool with this ID already exists locally
+              if (update || all) {
+                // --update or --all: update existing
+                action = 'update';
+                status = 'pending';
+              } else {
+                // Default: skip existing
+                action = 'skip';
+                status = 'skipped';
+              }
+            } else {
+              // New tool (not present locally)
+              if (update) {
+                // --update mode: skip new items (only update existing)
+                action = 'skip';
+                status = 'skipped';
+              } else {
+                // Default or --all: create new items
+                // Handle name conflicts
+                if (existingToolNames.has(toolName)) {
+                  let counter = 1;
+                  const originalName = toolName;
+                  while (existingToolNames.has(toolName)) {
+                    toolName = `${originalName}_${counter}`;
+                    counter++;
+                  }
+                }
+                action = 'create';
+                status = 'pending';
+                existingToolNames.add(toolName);
               }
             }
 
@@ -110,7 +162,9 @@ export const PullToolsView: React.FC<PullToolsViewProps> = ({
               name: toolName,
               id: toolId,
               type: toolItem.tool_config?.type || toolItem.type,
-              status: 'pending' as const
+              action,
+              status,
+              message: status === 'skipped' ? 'Skipped' : undefined
             };
           })
           .filter(Boolean) as PullTool[];
@@ -118,8 +172,8 @@ export const PullToolsView: React.FC<PullToolsViewProps> = ({
         setTools(toolsToPull);
         setState(prev => ({ ...prev, loading: false, phase: 'pulling' }));
 
-        if (toolsToPull.length === 0) {
-          setState(prev => ({ ...prev, error: 'No new tools to pull.', phase: 'complete' }));
+        if (toolsToPull.filter(t => t.status === 'pending').length === 0) {
+          setState(prev => ({ ...prev, error: 'No tools to pull with current options.', phase: 'complete' }));
           return;
         }
 
@@ -133,7 +187,7 @@ export const PullToolsView: React.FC<PullToolsViewProps> = ({
     };
 
     initializePull();
-  }, [tool, search]);
+  }, [tool]);
 
   useEffect(() => {
     if (state.phase !== 'pulling' || currentToolIndex >= tools.length) {
@@ -188,44 +242,70 @@ export const PullToolsView: React.FC<PullToolsViewProps> = ({
           throw new Error('No tool_config found in response');
         }
 
-        // Generate config file path using tool name
-        const configPath = await generateUniqueFilename(outputDir, toolToPull.name);
-        const configFilePath = path.resolve(configPath);
+        const toolType = toolConfig.type || 'unknown';
+        let configPath: string;
 
-        // Create config file
-        await fs.ensureDir(path.dirname(configFilePath));
-        
-        await writeToolConfig(configFilePath, toolConfig as Tool);
-
-        // Update tools.json
+        // Read current tools.json
         const toolsConfigPath = path.resolve(TOOLS_CONFIG_FILE);
         const toolsConfig = await readToolsConfig(toolsConfigPath);
+        
+        // Find existing entry by ID
+        const existingToolIndex = toolsConfig.tools.findIndex(t => t.id === toolToPull.id);
 
-        const toolType = toolConfig.type || 'unknown';
+        if (toolToPull.action === 'update' && existingToolIndex !== -1) {
+          // Update existing tool: use existing config path
+          const existingTool = toolsConfig.tools[existingToolIndex];
+          if (!existingTool.config) {
+            throw new Error(`Existing tool ${existingTool.name} has no config path`);
+          }
+          configPath = existingTool.config;
+          
+          const configFilePath = path.resolve(configPath);
+          await fs.ensureDir(path.dirname(configFilePath));
+          await writeToolConfig(configFilePath, toolConfig as Tool);
 
-        const newTool: ToolDefinition = {
-          name: toolToPull.name,
-          type: toolType as 'webhook' | 'client',
-          config: configPath,
-          id: toolToPull.id
-        };
+          setTools(prev => prev.map((t, i) =>
+            i === currentToolIndex
+              ? {
+                  ...t,
+                  status: 'completed',
+                  message: `Updated at ${configPath}`,
+                  configPath,
+                  type: toolType
+                }
+              : t
+          ));
+        } else {
+          // Create new tool
+          configPath = await generateUniqueFilename(outputDir, toolToPull.name);
+          const configFilePath = path.resolve(configPath);
 
-        toolsConfig.tools.push(newTool);
-        await writeToolsConfig(toolsConfigPath, toolsConfig);
+          // Create config file
+          await fs.ensureDir(path.dirname(configFilePath));
+          await writeToolConfig(configFilePath, toolConfig as Tool);
 
-        setTools(prev => prev.map((t, i) =>
-          i === currentToolIndex
-            ? {
-                ...t,
-                status: 'completed',
-                message: `Saved to ${configPath}`,
-                configPath,
-                type: toolType
-              }
-            : t
-        ));
+          const newTool: ToolDefinition = {
+            name: toolToPull.name,
+            type: toolType as 'webhook' | 'client',
+            config: configPath,
+            id: toolToPull.id
+          };
 
-        // Update the tools array with completed status
+          toolsConfig.tools.push(newTool);
+          await writeToolsConfig(toolsConfigPath, toolsConfig);
+
+          setTools(prev => prev.map((t, i) =>
+            i === currentToolIndex
+              ? {
+                  ...t,
+                  status: 'completed',
+                  message: `Created at ${configPath}`,
+                  configPath,
+                  type: toolType
+                }
+              : t
+          ));
+        }
 
       } catch (err) {
         setTools(prev => prev.map((t, i) =>

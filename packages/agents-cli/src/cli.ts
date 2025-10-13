@@ -129,17 +129,19 @@ interface WatchOptions {
 }
 
 interface PullOptions {
-  agent?: string;
+  agent?: string; // Agent ID to pull specifically
   outputDir: string;
-  search?: string;
   dryRun: boolean;
+  update?: boolean; // Update existing items only
+  all?: boolean; // Pull all (new + existing)
 }
 
 interface PullToolsOptions {
-  tool?: string;
+  tool?: string; // Tool ID to pull specifically
   outputDir: string;
-  search?: string;
   dryRun: boolean;
+  update?: boolean; // Update existing items only
+  all?: boolean; // Pull all (new + existing)
 }
 
 // Widget options interface removed - no longer needed
@@ -725,9 +727,10 @@ program
 program
   .command('pull')
   .description('Pull all agents from ElevenLabs workspace and add them to local configuration')
-  .option('--agent <name>', 'Specific agent name pattern to search for')
+  .option('--agent <id>', 'Specific agent ID to pull')
   .option('--output-dir <dir>', 'Directory to store pulled agent configs', 'agent_configs')
-  .option('--search <term>', 'Search agents by name')
+  .option('--update', 'Update existing agents only (skip new)', false)
+  .option('--all', 'Pull all agents (new + existing)', false)
   .option('--dry-run', 'Show what would be pulled without making changes', false)
   .option('--no-ui', 'Disable interactive UI')
   .action(async (options: PullOptions & { ui: boolean }) => {
@@ -738,8 +741,9 @@ program
           React.createElement(PullView, {
             agent: options.agent,
             outputDir: options.outputDir,
-            search: options.search,
-            dryRun: options.dryRun
+            dryRun: options.dryRun,
+            update: options.update,
+            all: options.all
           })
         );
         await waitUntilExit();
@@ -756,9 +760,10 @@ program
 program
   .command('pull-tools')
   .description('Pull all tools from ElevenLabs workspace and add them to local configuration')
-  .option('--tool <name>', 'Specific tool name pattern to search for')
+  .option('--tool <id>', 'Specific tool ID to pull')
   .option('--output-dir <dir>', 'Directory to store pulled tool configs', 'tool_configs')
-  .option('--search <term>', 'Search tools by name')
+  .option('--update', 'Update existing tools only (skip new)', false)
+  .option('--all', 'Pull all tools (new + existing)', false)
   .option('--dry-run', 'Show what would be pulled without making changes', false)
   .option('--no-ui', 'Disable interactive UI', false)
   .action(async (options: PullToolsOptions & { ui: boolean }) => {
@@ -769,8 +774,9 @@ program
           React.createElement(PullToolsView, {
             tool: options.tool,
             outputDir: options.outputDir,
-            search: options.search,
-            dryRun: options.dryRun
+            dryRun: options.dryRun,
+            update: options.update,
+            all: options.all
           })
         );
         await waitUntilExit();
@@ -895,10 +901,13 @@ program
 program
   .command('pull-tests')
   .description('Pull all tests from ElevenLabs workspace and add them to local configuration')
+  .option('--test <id>', 'Specific test ID to pull')
   .option('--output-dir <dir>', 'Directory to store pulled test configs', 'test_configs')
+  .option('--update', 'Update existing tests only (skip new)', false)
+  .option('--all', 'Pull all tests (new + existing)', false)
   .option('--dry-run', 'Show what would be pulled without making changes', false)
   .option('--no-ui', 'Disable interactive UI')
-  .action(async (options: { outputDir: string; dryRun: boolean; ui: boolean }) => {
+  .action(async (options: { test?: string; outputDir: string; dryRun: boolean; update?: boolean; all?: boolean; ui: boolean }) => {
     try {
       // For now, always use non-UI mode (UI can be added later if needed)
       await pullTests(options);
@@ -1396,6 +1405,24 @@ async function listConfiguredAgents(): Promise<void> {
   });
 }
 
+/**
+ * Prompts the user for confirmation. Returns true if user confirms, false otherwise.
+ */
+async function promptForConfirmation(message: string): Promise<boolean> {
+  const readline = await import('readline');
+  const rl = readline.createInterface({
+    input: process.stdin,
+    output: process.stdout
+  });
+
+  return new Promise<boolean>((resolve) => {
+    rl.question(`${message} [y/N] `, (answer) => {
+      rl.close();
+      resolve(answer.toLowerCase() === 'y' || answer.toLowerCase() === 'yes');
+    });
+  });
+}
+
 async function pullAgents(options: PullOptions): Promise<void> {
   // Check if agents.json exists
   const agentsConfigPath = path.resolve(AGENTS_CONFIG_FILE);
@@ -1405,26 +1432,56 @@ async function pullAgents(options: PullOptions): Promise<void> {
   
   const client = await getElevenLabsClient();
   
-  // Use agent option as search term if provided, otherwise use search parameter
-  const searchTerm = options.agent || options.search;
-  
-  // Pull all agents from ElevenLabs
-  console.log('Pulling agents from ElevenLabs...');
-  const agentsList = await listAgentsApi(client, 30, searchTerm);
-  
-  if (agentsList.length === 0) {
-    console.log('No agents found in your ElevenLabs workspace.');
-    return;
-  }
-  
-  console.log(`Found ${agentsList.length} agent(s)`);
-  
   // Load existing config
   const agentsConfig = await readConfig<AgentsConfig>(agentsConfigPath);
   const existingAgentNames = new Set(agentsConfig.agents.map(agent => agent.name));
   
-  let newAgentsAdded = 0;
+  let agentsList: unknown[];
   
+  if (options.agent) {
+    // Pull specific agent by ID
+    console.log(`Pulling agent with ID: ${options.agent}...`);
+    try {
+      const agentDetails = await getAgentApi(client, options.agent);
+      const agentDetailsTyped = agentDetails as { agentId?: string; agent_id?: string; name: string };
+      const agentId = agentDetailsTyped.agentId || agentDetailsTyped.agent_id || options.agent;
+      agentsList = [{ 
+        agentId: agentId,
+        agent_id: agentId,
+        name: agentDetailsTyped.name 
+      }];
+      console.log(`Found agent: ${agentDetailsTyped.name}`);
+    } catch (error) {
+      throw new Error(`Failed to fetch agent with ID '${options.agent}': ${error}`);
+    }
+  } else {
+    // Pull all agents from ElevenLabs
+    console.log('Pulling all agents from ElevenLabs...');
+    agentsList = await listAgentsApi(client, 30);
+    
+    if (agentsList.length === 0) {
+      console.log('No agents found in your ElevenLabs workspace.');
+      return;
+    }
+    
+    console.log(`Found ${agentsList.length} agent(s)`);
+  }
+  
+  // Build map of existing agents by ID for quick lookup
+  const existingAgentIds = new Map(
+    agentsConfig.agents.map(agent => [agent.id, agent])
+  );
+
+  // Track operations for summary
+  const operations = { create: 0, update: 0, skip: 0 };
+  type OperationItem = {
+    action: 'create' | 'update' | 'skip';
+    agent: { id: string; name: string };
+    existingEntry?: AgentDefinition;
+  };
+  const itemsToProcess: OperationItem[] = [];
+
+  // First pass: determine what will happen
   for (const agentMeta of agentsList) {
     const agentMetaTyped = agentMeta as { agentId?: string; agent_id?: string; name: string };
     const agentId = agentMetaTyped.agentId || agentMetaTyped.agent_id;
@@ -1432,28 +1489,84 @@ async function pullAgents(options: PullOptions): Promise<void> {
       console.log(`Warning: Skipping agent '${agentMetaTyped.name}' - no agent ID found`);
       continue;
     }
-    let agentNameRemote = agentMetaTyped.name;
     
-    // Check for name conflicts
-    if (existingAgentNames.has(agentNameRemote)) {
-      let counter = 1;
-      const originalName = agentNameRemote;
-      while (existingAgentNames.has(agentNameRemote)) {
-        agentNameRemote = `${originalName}_${counter}`;
-        counter++;
+    let agentNameRemote = agentMetaTyped.name;
+    const existingEntry = existingAgentIds.get(agentId);
+    
+    if (existingEntry) {
+      // Agent with this ID already exists locally
+      if (options.update || options.all) {
+        // --update or --all: update existing
+        itemsToProcess.push({ action: 'update', agent: { id: agentId, name: agentNameRemote }, existingEntry });
+        operations.update++;
+      } else {
+        // Default: skip existing
+        itemsToProcess.push({ action: 'skip', agent: { id: agentId, name: agentNameRemote }, existingEntry });
+        operations.skip++;
       }
-      console.log(`Warning: Name conflict: renamed '${originalName}' to '${agentNameRemote}'`);
+    } else {
+      // New agent (not present locally)
+      if (options.update) {
+        // --update mode: skip new items (only update existing)
+        itemsToProcess.push({ action: 'skip', agent: { id: agentId, name: agentNameRemote } });
+        operations.skip++;
+      } else {
+        // Default or --all: create new items
+        // Check for name conflicts
+        if (existingAgentNames.has(agentNameRemote)) {
+          let counter = 1;
+          const originalName = agentNameRemote;
+          while (existingAgentNames.has(agentNameRemote)) {
+            agentNameRemote = `${originalName}_${counter}`;
+            counter++;
+          }
+        }
+        itemsToProcess.push({ action: 'create', agent: { id: agentId, name: agentNameRemote } });
+        operations.create++;
+        existingAgentNames.add(agentNameRemote);
+      }
+    }
+  }
+
+  // Show summary
+  console.log(`\nPlan: ${operations.create} create, ${operations.update} update, ${operations.skip} skip`);
+  
+  if (operations.skip > 0 && !options.update && !options.all) {
+    if (operations.create === 0) {
+      console.log(`\n💡 Tip: Use --update to update existing agents or --all to pull everything`);
+    } else {
+      console.log(`\n💡 Tip: Use --all to also update existing agents`);
+    }
+  }
+
+  // Prompt for confirmation if not --dry-run
+  if (!options.dryRun && (operations.create > 0 || operations.update > 0)) {
+    const confirmed = await promptForConfirmation('Proceed?');
+    if (!confirmed) {
+      console.log('Pull cancelled');
+      return;
+    }
+  }
+
+  // Second pass: execute operations
+  let itemsProcessed = 0;
+  for (const item of itemsToProcess) {
+    const { action, agent, existingEntry } = item;
+    
+    if (action === 'skip') {
+      console.log(`⊘ Skipping '${agent.name}' (already exists, use --update to overwrite)`);
+      continue;
     }
     
     if (options.dryRun) {
-      console.log(`[DRY RUN] Would pull agent: ${agentNameRemote} (ID: ${agentId})`);
+      console.log(`[DRY RUN] Would ${action} agent: ${agent.name} (ID: ${agent.id})`);
       continue;
     }
     
     try {
       // Fetch detailed agent configuration
-      console.log(`Pulling config for '${agentNameRemote}'...`);
-      const agentDetails = await getAgentApi(client, agentId);
+      console.log(`${action === 'update' ? '↻ Updating' : '+ Pulling'} config for '${agent.name}'...`);
+      const agentDetails = await getAgentApi(client, agent.id);
       
       // Extract configuration components
       const agentDetailsTyped = agentDetails as {
@@ -1470,52 +1583,55 @@ async function pullAgents(options: PullOptions): Promise<void> {
       
       // Create agent config structure (without agent_id - it goes in index file)
       const agentConfig: AgentConfig = {
-        name: agentNameRemote,
+        name: agent.name,
         conversation_config: conversationConfig as AgentConfig['conversation_config'],
         platform_settings: platformSettings,
         tags
       };
       
-      // Generate config file path using agent name
-      const configPath = await generateUniqueFilename(options.outputDir, agentNameRemote);
+      if (action === 'update' && existingEntry) {
+        // Update existing entry - overwrite the config file
+        const configFilePath = path.resolve(existingEntry.config);
+        await fs.ensureDir(path.dirname(configFilePath));
+        await writeConfig(configFilePath, agentConfig);
+        console.log(`  ✓ Updated '${agent.name}' (config: ${existingEntry.config})`);
+      } else {
+        // Create new entry
+        const configPath = await generateUniqueFilename(options.outputDir, agent.name);
+        const configFilePath = path.resolve(configPath);
+        await fs.ensureDir(path.dirname(configFilePath));
+        await writeConfig(configFilePath, agentConfig);
+        
+        const newAgent: AgentDefinition = {
+          name: agent.name,
+          config: configPath,
+          id: agent.id
+        };
+        
+        agentsConfig.agents.push(newAgent);
+        console.log(`  ✓ Added '${agent.name}' (config: ${configPath})`);
+      }
       
-      // Create config file
-      const configFilePath = path.resolve(configPath);
-      await fs.ensureDir(path.dirname(configFilePath));
-      await writeConfig(configFilePath, agentConfig);
-      
-      // Create new agent entry for agents.json with ID
-      const newAgent: AgentDefinition = {
-        name: agentNameRemote,
-        config: configPath,
-        id: agentId
-      };
-      
-      // Add to agents config
-      agentsConfig.agents.push(newAgent);
-      existingAgentNames.add(agentNameRemote);
-      
-      console.log(`Added '${agentNameRemote}' (config: ${configPath})`);
-      newAgentsAdded++;
+      itemsProcessed++;
       
     } catch (error) {
-      console.log(`Error pulling agent '${agentNameRemote}': ${error}`);
+      console.log(`  ✗ Error ${action === 'update' ? 'updating' : 'pulling'} agent '${agent.name}': ${error}`);
       continue;
     }
   }
   
-  if (!options.dryRun && newAgentsAdded > 0) {
-    // Save updated agents.json
+  // Save updated agents.json if there were changes
+  if (!options.dryRun && itemsProcessed > 0) {
     await writeConfig(agentsConfigPath, agentsConfig);
-    
-    console.log(`Updated ${AGENTS_CONFIG_FILE}`);
+    console.log(`\nUpdated ${AGENTS_CONFIG_FILE}`);
   }
   
+  // Final summary
   if (options.dryRun) {
-    console.log(`[DRY RUN] Would add ${agentsList.length} agent(s)`);
+    console.log(`\n[DRY RUN] Would process ${operations.create + operations.update} agent(s)`);
   } else {
-    console.log(`Successfully added ${newAgentsAdded} new agent(s)`);
-    if (newAgentsAdded > 0) {
+    console.log(`\n✓ Summary: ${operations.create} created, ${operations.update} updated, ${operations.skip} skipped`);
+    if (itemsProcessed > 0) {
       console.log(`You can now edit the config files in '${options.outputDir}/' and run 'agents push' to update`);
     }
   }
@@ -1536,34 +1652,62 @@ async function pullTools(options: PullToolsOptions): Promise<void> {
 
   const client = await getElevenLabsClient();
 
-  // Use tool option as search term if provided, otherwise use search parameter
-  const searchTerm = options.tool || options.search;
-
-  // Pull all tools from ElevenLabs
-  console.log('Pulling tools from ElevenLabs...');
-  const toolsList = await listToolsApi(client);
-
-  if (toolsList.length === 0) {
-    console.log('No tools found in your ElevenLabs workspace.');
-    return;
-  }
-
-  console.log(`Found ${toolsList.length} tool(s)`);
-
-  // Filter tools by search term if provided
-  let filteredTools = toolsList;
-  if (searchTerm) {
-    filteredTools = toolsList.filter((tool: unknown) => {
-      const toolTyped = tool as { tool_config?: { name?: string } };
-      return toolTyped.tool_config?.name?.toLowerCase().includes(searchTerm.toLowerCase());
-    });
-    console.log(`Filtered to ${filteredTools.length} tool(s) matching "${searchTerm}"`);
-  }
-
   const existingToolNames = new Set(toolsConfig.tools.map(tool => tool.name));
 
-  let newToolsAdded = 0;
+  let filteredTools: unknown[];
 
+  if (options.tool) {
+    // Pull specific tool by ID
+    console.log(`Pulling tool with ID: ${options.tool}...`);
+    try {
+      const toolDetails = await getToolApi(client, options.tool);
+      const toolDetailsTyped = toolDetails as { tool_id?: string; toolId?: string; id?: string; tool_config?: { name?: string } & Tool };
+      const toolId = toolDetailsTyped.tool_id || toolDetailsTyped.toolId || toolDetailsTyped.id || options.tool;
+      const toolName = toolDetailsTyped.tool_config?.name;
+      
+      if (!toolName) {
+        throw new Error(`Tool with ID '${options.tool}' has no name`);
+      }
+      
+      filteredTools = [{
+        tool_id: toolId,
+        toolId: toolId,
+        id: toolId,
+        tool_config: toolDetailsTyped.tool_config
+      }];
+      console.log(`Found tool: ${toolName}`);
+    } catch (error) {
+      throw new Error(`Failed to fetch tool with ID '${options.tool}': ${error}`);
+    }
+  } else {
+    // Pull all tools from ElevenLabs
+    console.log('Pulling all tools from ElevenLabs...');
+    const toolsList = await listToolsApi(client);
+
+    if (toolsList.length === 0) {
+      console.log('No tools found in your ElevenLabs workspace.');
+      return;
+    }
+
+    console.log(`Found ${toolsList.length} tool(s)`);
+    filteredTools = toolsList;
+  }
+
+  // Build map of existing tools by ID for quick lookup
+  const existingToolIds = new Map(
+    toolsConfig.tools.map(tool => [tool.id, tool])
+  );
+
+  // Track operations for summary
+  const operations = { create: 0, update: 0, skip: 0 };
+  type OperationItem = {
+    action: 'create' | 'update' | 'skip';
+    tool: { id: string; name: string };
+    existingEntry?: ToolDefinition;
+  };
+  const itemsToProcess: OperationItem[] = [];
+
+  // First pass: determine what will happen
   for (const toolMeta of filteredTools) {
     const toolMetaTyped = toolMeta as { tool_id?: string; toolId?: string; id?: string; tool_config?: { name?: string } };
     const toolId = toolMetaTyped.tool_id || toolMetaTyped.toolId || toolMetaTyped.id;
@@ -1576,83 +1720,141 @@ async function pullTools(options: PullToolsOptions): Promise<void> {
       console.log(`Warning: Skipping tool with ID '${toolId}' - no tool name found`);
       continue;
     }
+
     let toolNameRemote = toolName;
+    const existingEntry = existingToolIds.get(toolId);
 
-    // Check for name conflicts
-    if (existingToolNames.has(toolNameRemote)) {
-      let counter = 1;
-      const originalName = toolNameRemote;
-      while (existingToolNames.has(toolNameRemote)) {
-        toolNameRemote = `${originalName}_${counter}`;
-        counter++;
+    if (existingEntry) {
+      // Tool with this ID already exists locally
+      if (options.update || options.all) {
+        // --update or --all: update existing
+        itemsToProcess.push({ action: 'update', tool: { id: toolId, name: toolNameRemote }, existingEntry });
+        operations.update++;
+      } else {
+        // Default: skip existing
+        itemsToProcess.push({ action: 'skip', tool: { id: toolId, name: toolNameRemote }, existingEntry });
+        operations.skip++;
       }
-      console.log(`Warning: Name conflict: renamed '${originalName}' to '${toolNameRemote}'`);
+    } else {
+      // New tool (not present locally)
+      if (options.update) {
+        // --update mode: skip new items (only update existing)
+        itemsToProcess.push({ action: 'skip', tool: { id: toolId, name: toolNameRemote } });
+        operations.skip++;
+      } else {
+        // Default or --all: create new items
+        // Check for name conflicts
+        if (existingToolNames.has(toolNameRemote)) {
+          let counter = 1;
+          const originalName = toolNameRemote;
+          while (existingToolNames.has(toolNameRemote)) {
+            toolNameRemote = `${originalName}_${counter}`;
+            counter++;
+          }
+        }
+        itemsToProcess.push({ action: 'create', tool: { id: toolId, name: toolNameRemote } });
+        operations.create++;
+        existingToolNames.add(toolNameRemote);
+      }
     }
+  }
 
-    if (options.dryRun) {
-      console.log(`[DRY RUN] Would pull tool: ${toolNameRemote} (ID: ${toolId})`);
+  // Show summary
+  console.log(`\nPlan: ${operations.create} create, ${operations.update} update, ${operations.skip} skip`);
+  
+  if (operations.skip > 0 && !options.update && !options.all) {
+    if (operations.create === 0) {
+      console.log(`\n💡 Tip: Use --update to update existing tools or --all to pull everything`);
+    } else {
+      console.log(`\n💡 Tip: Use --all to also update existing tools`);
+    }
+  }
+
+  // Prompt for confirmation if not --dry-run
+  if (!options.dryRun && (operations.create > 0 || operations.update > 0)) {
+    const confirmed = await promptForConfirmation('Proceed?');
+    if (!confirmed) {
+      console.log('Pull cancelled');
+      return;
+    }
+  }
+
+  // Second pass: execute operations
+  let itemsProcessed = 0;
+  for (const item of itemsToProcess) {
+    const { action, tool, existingEntry } = item;
+    
+    if (action === 'skip') {
+      console.log(`⊘ Skipping '${tool.name}' (already exists, use --update to overwrite)`);
       continue;
     }
-
+    
+    if (options.dryRun) {
+      console.log(`[DRY RUN] Would ${action} tool: ${tool.name} (ID: ${tool.id})`);
+      continue;
+    }
+    
     try {
       // Fetch detailed tool configuration
-      console.log(`Pulling config for '${toolNameRemote}'...`);
-      const toolDetails = await getToolApi(client, toolId);
+      console.log(`${action === 'update' ? '↻ Updating' : '+ Pulling'} config for '${tool.name}'...`);
+      const toolDetails = await getToolApi(client, tool.id);
 
       // Extract the tool_config from the response
       const toolDetailsTyped = toolDetails as { tool_config?: Tool & { type?: string } };
       const toolConfig = toolDetailsTyped.tool_config;
       
       if (!toolConfig) {
-        console.log(`Warning: No tool_config found for '${toolNameRemote}' - skipping`);
+        console.log(`  ✗ Warning: No tool_config found for '${tool.name}' - skipping`);
         continue;
       }
       
-      // Generate config file path using tool name
-      const configPath = await generateUniqueFilename(options.outputDir, toolNameRemote);
-      
-      // Create config file (without tool_id - it goes in index file)
-      const configFilePath = path.resolve(configPath);
-      await fs.ensureDir(path.dirname(configFilePath));
-      
-      await writeToolConfig(configFilePath, toolConfig as Tool);
-
       // Determine tool type from the tool_config
       const toolType = toolConfig.type || 'unknown';
-
-      // Create new tool entry for tools.json with ID
-      const newTool: ToolDefinition = {
-        name: toolNameRemote,
-        type: toolType as 'webhook' | 'client',
-        config: configPath,
-        id: toolId
-      };
-
-      // Add to tools config
-      toolsConfig.tools.push(newTool);
-      existingToolNames.add(toolNameRemote);
-
-      console.log(`Added '${toolNameRemote}' (config: ${configPath}, type: ${toolType})`);
-      newToolsAdded++;
-
+      
+      if (action === 'update' && existingEntry && existingEntry.config) {
+        // Update existing entry - overwrite the config file
+        const configFilePath = path.resolve(existingEntry.config);
+        await fs.ensureDir(path.dirname(configFilePath));
+        await writeToolConfig(configFilePath, toolConfig as Tool);
+        console.log(`  ✓ Updated '${tool.name}' (config: ${existingEntry.config})`);
+      } else {
+        // Create new entry
+        const configPath = await generateUniqueFilename(options.outputDir, tool.name);
+        const configFilePath = path.resolve(configPath);
+        await fs.ensureDir(path.dirname(configFilePath));
+        await writeToolConfig(configFilePath, toolConfig as Tool);
+        
+        const newTool: ToolDefinition = {
+          name: tool.name,
+          type: toolType as 'webhook' | 'client',
+          config: configPath,
+          id: tool.id
+        };
+        
+        toolsConfig.tools.push(newTool);
+        console.log(`  ✓ Added '${tool.name}' (config: ${configPath}, type: ${toolType})`);
+      }
+      
+      itemsProcessed++;
+      
     } catch (error) {
-      console.log(`Error pulling tool '${toolNameRemote}': ${error}`);
+      console.log(`  ✗ Error ${action === 'update' ? 'updating' : 'pulling'} tool '${tool.name}': ${error}`);
       continue;
     }
   }
 
-  if (!options.dryRun && newToolsAdded > 0) {
-    // Save updated tools.json
+  // Save updated tools.json if there were changes
+  if (!options.dryRun && itemsProcessed > 0) {
     await writeToolsConfig(toolsConfigPath, toolsConfig);
-
-    console.log(`Updated ${TOOLS_CONFIG_FILE}`);
+    console.log(`\nUpdated ${TOOLS_CONFIG_FILE}`);
   }
 
+  // Final summary
   if (options.dryRun) {
-    console.log(`[DRY RUN] Would add ${filteredTools.length} tool(s)`);
+    console.log(`\n[DRY RUN] Would process ${operations.create + operations.update} tool(s)`);
   } else {
-    console.log(`Successfully added ${newToolsAdded} new tool(s)`);
-    if (newToolsAdded > 0) {
+    console.log(`\n✓ Summary: ${operations.create} created, ${operations.update} updated, ${operations.skip} skipped`);
+    if (itemsProcessed > 0) {
       console.log(`You can now edit the config files in '${options.outputDir}/' and use them in your agents`);
     }
   }
@@ -1952,7 +2154,7 @@ async function pushTools(toolName?: string, dryRun = false): Promise<void> {
   }
 }
 
-async function pullTests(options: { outputDir: string; dryRun: boolean }): Promise<void> {
+async function pullTests(options: { test?: string; outputDir: string; dryRun: boolean; update?: boolean; all?: boolean }): Promise<void> {
   // Check if tests.json exists
   const testsConfigPath = path.resolve(TESTS_CONFIG_FILE);
   let testsConfig: TestsConfig;
@@ -1967,22 +2169,54 @@ async function pullTests(options: { outputDir: string; dryRun: boolean }): Promi
 
   const client = await getElevenLabsClient();
 
-  // Fetch all tests from ElevenLabs
-  console.log('Fetching tests from ElevenLabs...');
-  const testsList = await listTestsApi(client, 30);
-
-  if (testsList.length === 0) {
-    console.log('No tests found in your ElevenLabs workspace.');
-    return;
-  }
-
-  console.log(`Found ${testsList.length} test(s)`);
-
   // Load existing config
   const existingTestNames = new Set(testsConfig.tests.map(test => test.name));
 
-  let newTestsAdded = 0;
+  let testsList: unknown[];
 
+  if (options.test) {
+    // Pull specific test by ID
+    console.log(`Pulling test with ID: ${options.test}...`);
+    try {
+      const testDetails = await getTestApi(client, options.test);
+      const testDetailsTyped = testDetails as { id?: string; name: string };
+      const testId = testDetailsTyped.id || options.test;
+      testsList = [{
+        id: testId,
+        name: testDetailsTyped.name
+      }];
+      console.log(`Found test: ${testDetailsTyped.name}`);
+    } catch (error) {
+      throw new Error(`Failed to fetch test with ID '${options.test}': ${error}`);
+    }
+  } else {
+    // Fetch all tests from ElevenLabs
+    console.log('Fetching all tests from ElevenLabs...');
+    testsList = await listTestsApi(client, 30);
+
+    if (testsList.length === 0) {
+      console.log('No tests found in your ElevenLabs workspace.');
+      return;
+    }
+
+    console.log(`Found ${testsList.length} test(s)`);
+  }
+
+  // Build map of existing tests by ID for quick lookup
+  const existingTestIds = new Map(
+    testsConfig.tests.map(test => [test.id, test])
+  );
+
+  // Track operations for summary
+  const operations = { create: 0, update: 0, skip: 0 };
+  type OperationItem = {
+    action: 'create' | 'update' | 'skip';
+    test: { id: string; name: string };
+    existingEntry?: TestDefinition;
+  };
+  const itemsToProcess: OperationItem[] = [];
+
+  // First pass: determine what will happen
   for (const testMeta of testsList) {
     const testMetaTyped = testMeta as { id?: string; name: string };
     const testId = testMetaTyped.id;
@@ -1990,69 +2224,128 @@ async function pullTests(options: { outputDir: string; dryRun: boolean }): Promi
       console.log(`Warning: Skipping test '${testMetaTyped.name}' - no test ID found`);
       continue;
     }
+
     let testNameRemote = testMetaTyped.name;
+    const existingEntry = existingTestIds.get(testId);
 
-    // Check for name conflicts
-    if (existingTestNames.has(testNameRemote)) {
-      let counter = 1;
-      const originalName = testNameRemote;
-      while (existingTestNames.has(testNameRemote)) {
-        testNameRemote = `${originalName}_${counter}`;
-        counter++;
+    if (existingEntry) {
+      // Test with this ID already exists locally
+      if (options.update || options.all) {
+        // --update or --all: update existing
+        itemsToProcess.push({ action: 'update', test: { id: testId, name: testNameRemote }, existingEntry });
+        operations.update++;
+      } else {
+        // Default: skip existing
+        itemsToProcess.push({ action: 'skip', test: { id: testId, name: testNameRemote }, existingEntry });
+        operations.skip++;
       }
-      console.log(`Warning: Name conflict: renamed '${originalName}' to '${testNameRemote}'`);
+    } else {
+      // New test (not present locally)
+      if (options.update) {
+        // --update mode: skip new items (only update existing)
+        itemsToProcess.push({ action: 'skip', test: { id: testId, name: testNameRemote } });
+        operations.skip++;
+      } else {
+        // Default or --all: create new items
+        // Check for name conflicts
+        if (existingTestNames.has(testNameRemote)) {
+          let counter = 1;
+          const originalName = testNameRemote;
+          while (existingTestNames.has(testNameRemote)) {
+            testNameRemote = `${originalName}_${counter}`;
+            counter++;
+          }
+        }
+        itemsToProcess.push({ action: 'create', test: { id: testId, name: testNameRemote } });
+        operations.create++;
+        existingTestNames.add(testNameRemote);
+      }
     }
+  }
 
-    if (options.dryRun) {
-      console.log(`[DRY RUN] Would pull test: ${testNameRemote} (ID: ${testId})`);
+  // Show summary
+  console.log(`\nPlan: ${operations.create} create, ${operations.update} update, ${operations.skip} skip`);
+  
+  if (operations.skip > 0 && !options.update && !options.all) {
+    if (operations.create === 0) {
+      console.log(`\n💡 Tip: Use --update to update existing tests or --all to pull everything`);
+    } else {
+      console.log(`\n💡 Tip: Use --all to also update existing tests`);
+    }
+  }
+
+  // Prompt for confirmation if not --dry-run
+  if (!options.dryRun && (operations.create > 0 || operations.update > 0)) {
+    const confirmed = await promptForConfirmation('Proceed?');
+    if (!confirmed) {
+      console.log('Pull cancelled');
+      return;
+    }
+  }
+
+  // Second pass: execute operations
+  let itemsProcessed = 0;
+  for (const item of itemsToProcess) {
+    const { action, test, existingEntry } = item;
+    
+    if (action === 'skip') {
+      console.log(`⊘ Skipping '${test.name}' (already exists, use --update to overwrite)`);
       continue;
     }
-
+    
+    if (options.dryRun) {
+      console.log(`[DRY RUN] Would ${action} test: ${test.name} (ID: ${test.id})`);
+      continue;
+    }
+    
     try {
       // Fetch detailed test configuration
-      console.log(`Pulling config for '${testNameRemote}'...`);
-      const testDetails = await getTestApi(client, testId);
-
-      // Generate config file path using test name
-      const configPath = await generateUniqueFilename(options.outputDir, testNameRemote);
-
-      // Create config file (without test ID - it goes in index file)
-      const configFilePath = path.resolve(configPath);
-      await fs.ensureDir(path.dirname(configFilePath));
-      await writeConfig(configFilePath, testDetails);
-
-      // Create new test entry for tests.json with ID
-      const newTest: TestDefinition = {
-        name: testNameRemote,
-        config: configPath,
-        id: testId
-      };
-
-      // Add to tests config
-      testsConfig.tests.push(newTest);
-      existingTestNames.add(testNameRemote);
-
-      console.log(`Added '${testNameRemote}' (config: ${configPath})`);
-      newTestsAdded++;
-
+      console.log(`${action === 'update' ? '↻ Updating' : '+ Pulling'} config for '${test.name}'...`);
+      const testDetails = await getTestApi(client, test.id);
+      
+      if (action === 'update' && existingEntry) {
+        // Update existing entry - overwrite the config file
+        const configFilePath = path.resolve(existingEntry.config);
+        await fs.ensureDir(path.dirname(configFilePath));
+        await writeConfig(configFilePath, testDetails);
+        console.log(`  ✓ Updated '${test.name}' (config: ${existingEntry.config})`);
+      } else {
+        // Create new entry
+        const configPath = await generateUniqueFilename(options.outputDir, test.name);
+        const configFilePath = path.resolve(configPath);
+        await fs.ensureDir(path.dirname(configFilePath));
+        await writeConfig(configFilePath, testDetails);
+        
+        const newTest: TestDefinition = {
+          name: test.name,
+          config: configPath,
+          id: test.id
+        };
+        
+        testsConfig.tests.push(newTest);
+        console.log(`  ✓ Added '${test.name}' (config: ${configPath})`);
+      }
+      
+      itemsProcessed++;
+      
     } catch (error) {
-      console.log(`Error pulling test '${testNameRemote}': ${error}`);
+      console.log(`  ✗ Error ${action === 'update' ? 'updating' : 'pulling'} test '${test.name}': ${error}`);
       continue;
     }
   }
 
-  if (!options.dryRun && newTestsAdded > 0) {
-    // Save updated tests.json
+  // Save updated tests.json if there were changes
+  if (!options.dryRun && itemsProcessed > 0) {
     await writeConfig(testsConfigPath, testsConfig);
-
-    console.log(`Updated ${TESTS_CONFIG_FILE}`);
+    console.log(`\nUpdated ${TESTS_CONFIG_FILE}`);
   }
 
+  // Final summary
   if (options.dryRun) {
-    console.log(`[DRY RUN] Would add ${testsList.length} test(s)`);
+    console.log(`\n[DRY RUN] Would process ${operations.create + operations.update} test(s)`);
   } else {
-    console.log(`Successfully added ${newTestsAdded} new test(s)`);
-    if (newTestsAdded > 0) {
+    console.log(`\n✓ Summary: ${operations.create} created, ${operations.update} updated, ${operations.skip} skipped`);
+    if (itemsProcessed > 0) {
       console.log(`You can now edit the config files in '${options.outputDir}/' and run 'agents push-tests' to update`);
     }
   }
