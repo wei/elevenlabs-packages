@@ -826,8 +826,10 @@ program
   .description('Push tests to ElevenLabs API when configs change')
   .option('--test <name>', 'Specific test name to push (defaults to all tests)')
   .option('--dry-run', 'Show what would be done without making changes', false)
-  .action(async (options: { test?: string; dryRun: boolean }) => {
+  .option('--no-ui', 'Disable interactive UI')
+  .action(async (options: { test?: string; dryRun: boolean; ui: boolean }) => {
     try {
+      // For now, always use non-UI mode (UI can be added later if needed)
       await pushTests(options.test, options.dryRun);
     } catch (error) {
       console.error(`Error during test push: ${error}`);
@@ -894,8 +896,10 @@ program
   .description('Pull all tests from ElevenLabs workspace and add them to local configuration')
   .option('--output-dir <dir>', 'Directory to store pulled test configs', 'test_configs')
   .option('--dry-run', 'Show what would be pulled without making changes', false)
-  .action(async (options: { outputDir: string; dryRun: boolean }) => {
+  .option('--no-ui', 'Disable interactive UI')
+  .action(async (options: { outputDir: string; dryRun: boolean; ui: boolean }) => {
     try {
+      // For now, always use non-UI mode (UI can be added later if needed)
       await pullTests(options);
     } catch (error) {
       console.error(`Error pulling tests: ${error}`);
@@ -917,6 +921,61 @@ program
       }
     } catch (error) {
       console.error(`Error running tests: ${error}`);
+      process.exit(1);
+    }
+  });
+
+const componentsCommand = program
+  .command('components')
+  .description('Import components from the ElevenLabs UI registry (https://ui.elevenlabs.io)');
+
+componentsCommand
+  .command('add')
+  .description('Add a new component from the ElevenLabs UI registry')
+  .argument('[name]', 'Name of the component')
+  .action(async (name?: string) => {
+    function getCommandPrefix(): string {
+      if (process.env.npm_config_user_agent) {
+        const userAgent = process.env.npm_config_user_agent;
+
+        if (userAgent.includes('pnpm')) {
+          return 'pnpm dlx';
+        }
+        if (userAgent.includes('yarn')) {
+          return 'yarn dlx';
+        }
+        if (userAgent.includes('bun')) {
+          return 'bunx';
+        }
+      }
+
+      return 'npx -y';
+    }
+
+    const commandPrefix = getCommandPrefix();
+
+    const component = name || 'all';
+
+    const targetUrl = new URL(
+      `/r/${component}.json`,
+      'https://ui.elevenlabs.io'
+    ).toString();
+
+    const fullCommand = `${commandPrefix} shadcn@latest add ${targetUrl}`;
+
+    console.log(`Installing ${component} from ElevenLabs UI registry...`);
+    console.log(`Running: ${fullCommand}`);
+
+    const result = spawnSync(fullCommand, {
+      stdio: 'inherit',
+      shell: true,
+    });
+
+    if (result.error) {
+      console.error('Failed to execute command:', result.error.message);
+      process.exit(1);
+    } else if (result.status !== 0) {
+      console.error(`Command failed with exit code ${result.status}`);
       process.exit(1);
     }
   });
@@ -1599,14 +1658,8 @@ async function generateWidget(name: string): Promise<void> {
     throw new Error(`Agent '${name}' not found in configuration`);
   }
   
-  // Get agent ID from config file
-  const configPath = agentDef.config;
-  if (!configPath || !(await fs.pathExists(configPath))) {
-    throw new Error(`Config file not found for agent '${name}': ${configPath}`);
-  }
-  
-  const agentConfig = await readAgentConfig<AgentConfig>(configPath);
-  const agentId = agentConfig.agent_id;
+  // Get agent ID from index file (agents.json)
+  const agentId = agentDef.id;
   
   if (!agentId) {
     throw new Error(`Agent '${name}' not found or not yet pushed. Run 'agents push --agent ${name}' to create the agent first`);
@@ -2004,6 +2057,13 @@ async function runAgentTestsWithUI(agentName: string): Promise<void> {
     throw new Error(`Agent '${agentName}' not found in configuration`);
   }
 
+  // Get agent ID from index file (agents.json)
+  const agentId = agentDef.id;
+  
+  if (!agentId) {
+    throw new Error(`Agent '${agentName}' not found or not yet pushed. Run 'agents push --agent ${agentName}' to create the agent first`);
+  }
+
   // Get agent config to find attached tests
   const configPath = agentDef.config;
 
@@ -2012,12 +2072,6 @@ async function runAgentTestsWithUI(agentName: string): Promise<void> {
   }
 
   const agentConfig = await readAgentConfig<AgentConfig>(configPath);
-  const agentId = agentConfig.agent_id;
-  
-  if (!agentId) {
-    throw new Error(`Agent '${agentName}' not found or not yet pushed. Run 'agents push --agent ${agentName}' to create the agent first`);
-  }
-  
   const attachedTests = agentConfig.platform_settings?.testing?.attached_tests || [];
 
   if (attachedTests.length === 0) {
@@ -2038,10 +2092,113 @@ async function runAgentTestsWithUI(agentName: string): Promise<void> {
 }
 
 async function runAgentTests(agentName: string): Promise<void> {
-  // Implementation for non-UI test running
-  console.log(`Running tests for agent '${agentName}'`);
-  // This would be similar to runAgentTestsWithUI but without the UI component
-  throw new Error('Non-UI test running not yet implemented. Use --ui mode.');
+  // Load agents configuration and get agent details
+  const agentsConfigPath = path.resolve(AGENTS_CONFIG_FILE);
+  if (!(await fs.pathExists(agentsConfigPath))) {
+    throw new Error('agents.json not found. Run \'agents init\' first.');
+  }
+
+  const agentsConfig = await readAgentConfig<AgentsConfig>(agentsConfigPath);
+  const agentDef = agentsConfig.agents.find(agent => agent.name === agentName);
+
+  if (!agentDef) {
+    throw new Error(`Agent '${agentName}' not found in configuration`);
+  }
+
+  // Get agent ID from index file (agents.json)
+  const agentId = agentDef.id;
+  
+  if (!agentId) {
+    throw new Error(`Agent '${agentName}' not found or not yet pushed. Run 'agents push --agent ${agentName}' to create the agent first`);
+  }
+
+  // Get agent config to find attached tests
+  const configPath = agentDef.config;
+
+  if (!configPath || !(await fs.pathExists(configPath))) {
+    throw new Error(`Config file not found for agent '${agentName}': ${configPath}`);
+  }
+
+  const agentConfig = await readAgentConfig<AgentConfig>(configPath);
+  const attachedTests = agentConfig.platform_settings?.testing?.attached_tests || [];
+
+  if (attachedTests.length === 0) {
+    throw new Error(`No tests attached to agent '${agentName}'. Add tests to the agent's testing configuration.`);
+  }
+
+  const testIds = attachedTests.map(test => test.test_id);
+
+  console.log(`Running ${testIds.length} test(s) for agent '${agentName}'...`);
+  console.log('');
+
+  // Run tests without UI
+  const client = await getElevenLabsClient();
+  
+  try {
+    // Import the API functions we need
+    const { runTestsOnAgentApi, getTestInvocationApi } = await import('./elevenlabs-api.js');
+    
+    // Start the test run
+    const invocationResponse = await runTestsOnAgentApi(client, agentId, testIds) as { id: string };
+    const invocationId = invocationResponse.id;
+    
+    console.log(`Test invocation started (ID: ${invocationId})`);
+    console.log('Waiting for tests to complete...');
+    console.log('');
+    
+    // Poll for test completion
+    let allComplete = false;
+    let attempts = 0;
+    const maxAttempts = 60; // 5 minutes with 5 second intervals
+    
+    while (!allComplete && attempts < maxAttempts) {
+      await new Promise(resolve => setTimeout(resolve, 5000)); // Wait 5 seconds
+      attempts++;
+      
+      const invocationStatus = await getTestInvocationApi(client, invocationId) as { test_runs?: Array<{ status: string; test_name?: string; test_id?: string }> };
+      const testRuns = invocationStatus.test_runs || [];
+      
+      allComplete = testRuns.every((run: { status: string }) => 
+        run.status === 'passed' || run.status === 'failed'
+      );
+      
+      if (allComplete) {
+        console.log('Test Results:');
+        console.log('='.repeat(50));
+        
+        let passedCount = 0;
+        let failedCount = 0;
+        
+        for (const testRun of testRuns) {
+          const status = testRun.status === 'passed' ? '✓' : '✗';
+          const testName = testRun.test_name || testRun.test_id || 'Unknown';
+          console.log(`${status} ${testName}: ${testRun.status}`);
+          
+          if (testRun.status === 'passed') {
+            passedCount++;
+          } else {
+            failedCount++;
+          }
+        }
+        
+        console.log('='.repeat(50));
+        console.log(`Total: ${testRuns.length} | Passed: ${passedCount} | Failed: ${failedCount}`);
+        
+        if (failedCount > 0) {
+          process.exit(1);
+        }
+      }
+    }
+    
+    if (!allComplete) {
+      console.error('Tests did not complete within the timeout period.');
+      process.exit(1);
+    }
+    
+  } catch (error) {
+    console.error(`Error running tests: ${error}`);
+    process.exit(1);
+  }
 }
 
 async function deleteAgent(agentId: string): Promise<void> {
@@ -2152,63 +2309,6 @@ if (args.length === 0 || args.includes('--help') || args.includes('-h')) {
     console.error('  agents components add button');
     process.exit(1);
   }
-
-  const componentsCommand = program
-    .command("components")
-    .description(
-      "Import components from the ElevenLabs UI registry (https://ui.elevenlabs.io)"
-    );
-
-  componentsCommand
-    .command("add")
-    .description("Add a new component from the ElevenLabs UI registry")
-    .argument("[name]", "Name of the component")
-    .action(async (name?: string) => {
-      function getCommandPrefix(): string {
-        if (process.env.npm_config_user_agent) {
-          const userAgent = process.env.npm_config_user_agent;
-
-          if (userAgent.includes("pnpm")) {
-            return "pnpm dlx";
-          }
-          if (userAgent.includes("yarn")) {
-            return "yarn dlx";
-          }
-          if (userAgent.includes("bun")) {
-            return "bunx";
-          }
-        }
-
-        return "npx -y";
-      }
-
-      const commandPrefix = getCommandPrefix();
-
-      const component = name || "all";
-
-      const targetUrl = new URL(
-        `/r/${component}.json`,
-        "https://ui.elevenlabs.io"
-      ).toString();
-
-      const fullCommand = `${commandPrefix} shadcn@latest add ${targetUrl}`;
-
-      console.log(`Installing ${component} from ElevenLabs UI registry...`);
-      console.log(`Running: ${fullCommand}`);
-
-      const result = spawnSync(fullCommand, {
-        stdio: "inherit",
-        shell: true,
-      });
-
-      if (result.error) {
-        console.error("Failed to execute command:", result.error.message);
-        process.exit(1);
-      } else if (result.status !== 0) {
-        console.error(`Command failed with exit code ${result.status}`);
-        process.exit(1);
-      }
-    });
 
   program.parse();
 }
