@@ -1101,31 +1101,22 @@ async function addTool(name: string, type: 'webhook' | 'client', configPath?: st
       api_schema: {
         url: 'https://api.example.com/webhook',
         method: 'POST',
-        path_params_schema: [],
-        query_params_schema: [],
         request_body_schema: {
-          id: 'body',
           type: 'object',
-          value_type: 'llm_prompt',
           description: 'Request body for the webhook',
-          dynamic_variable: '',
-          constant_value: '',
-          required: true,
-          properties: []
+          properties: {}
         },
-        request_headers: [
-          {
-            type: 'value' as const,
-            name: 'Content-Type',
-            value: 'application/json'
-          }
-        ],
-        auth_connection: null
+        request_headers: {
+          'Content-Type': 'application/json'
+        }
       },
       response_timeout_secs: 30,
       dynamic_variables: {
         dynamic_variable_placeholders: {}
-      }
+      },
+      assignments: [],
+      disable_interruptions: false,
+      force_pre_tool_speech: false
     };
   } else {
     toolConfig = {
@@ -1134,17 +1125,11 @@ async function addTool(name: string, type: 'webhook' | 'client', configPath?: st
       type: 'client' as const,
       expects_response: false,
       response_timeout_secs: 30,
-      parameters: [
-        {
-          id: 'input',
-          type: 'string',
-          value_type: 'llm_prompt',
-          description: 'Input parameter for the client tool',
-          dynamic_variable: '',
-          constant_value: '',
-          required: true
-        }
-      ],
+      parameters: {
+        type: 'object',
+        description: 'Parameters for the client tool',
+        properties: {}
+      },
       dynamic_variables: {
         dynamic_variable_placeholders: {}
       }
@@ -1158,9 +1143,9 @@ async function addTool(name: string, type: 'webhook' | 'client', configPath?: st
   
   try {
     const response = await createToolApi(client, toolConfig);
-    const toolId = (response as { toolId?: string }).toolId || `tool_${Date.now()}`;
+    const toolId = response.id;
     
-    console.log(`Created tool in ElevenLabs with ID: ${toolId}`);
+    console.log(`Created ${type} tool in ElevenLabs with ID: ${toolId}`);
     
     // Generate config path using tool name (or custom path if provided)
     if (!configPath) {

@@ -26,31 +26,27 @@ export interface WebhookTool {
   api_schema: {
     url: string;
     method: string;
-    path_params_schema: unknown[];
-    query_params_schema: unknown[];
-    request_body_schema: WebhookToolSchema;
-    request_headers: Array<{
-      type: 'value' | 'secret';
-      name: string;
-      value?: string;
-      secret_id?: string;
-    }>;
-    auth_connection: unknown;
+    path_params_schema?: Record<string, unknown>;
+    query_params_schema?: {
+      properties: Record<string, unknown>;
+      required?: string[];
+    };
+    request_body_schema?: {
+      type?: string;
+      required?: string[];
+      description?: string;
+      properties?: Record<string, unknown>;
+    } | null;
+    request_headers?: Record<string, string | { secret_id: string } | { variable_name: string }>;
+    auth_connection?: unknown;
   };
   response_timeout_secs: number;
   dynamic_variables: {
     dynamic_variable_placeholders: Record<string, unknown>;
   };
-}
-
-export interface ClientToolParameter {
-  id: string;
-  type: string;
-  value_type: string;
-  description: string;
-  dynamic_variable: string;
-  constant_value: string;
-  required: boolean;
+  assignments?: unknown[];
+  disable_interruptions?: boolean;
+  force_pre_tool_speech?: boolean;
 }
 
 export interface ClientTool {
@@ -59,12 +55,20 @@ export interface ClientTool {
   name: string;
   description: string;
   type: 'client';
-  expects_response: boolean;
-  response_timeout_secs: number;
-  parameters: ClientToolParameter[];
-  dynamic_variables: {
+  expects_response?: boolean;
+  response_timeout_secs?: number;
+  parameters?: {
+    type?: string;
+    required?: string[];
+    description?: string;
+    properties?: Record<string, unknown>;
+  };
+  dynamic_variables?: {
     dynamic_variable_placeholders: Record<string, unknown>;
   };
+  assignments?: unknown[];
+  disable_interruptions?: boolean;
+  force_pre_tool_speech?: boolean;
 }
 
 export type Tool = WebhookTool | ClientTool;
@@ -91,31 +95,22 @@ export function createDefaultWebhookTool(name: string): WebhookTool {
     api_schema: {
       url: 'https://api.example.com/webhook',
       method: 'POST',
-      path_params_schema: [],
-      query_params_schema: [],
       request_body_schema: {
-        id: 'body',
         type: 'object',
-        value_type: 'llm_prompt',
         description: 'Request body for the webhook',
-        dynamic_variable: '',
-        constant_value: '',
-        required: true,
-        properties: []
+        properties: {}
       },
-      request_headers: [
-        {
-          type: 'value',
-          name: 'Content-Type',
-          value: 'application/json'
-        }
-      ],
-      auth_connection: null
+      request_headers: {
+        'Content-Type': 'application/json'
+      }
     },
     response_timeout_secs: 30,
     dynamic_variables: {
       dynamic_variable_placeholders: {}
-    }
+    },
+    assignments: [],
+    disable_interruptions: false,
+    force_pre_tool_speech: false
   };
 }
 
@@ -129,17 +124,11 @@ export function createDefaultClientTool(name: string): ClientTool {
     type: 'client',
     expects_response: false,
     response_timeout_secs: 30,
-    parameters: [
-      {
-        id: 'input',
-        type: 'string',
-        value_type: 'llm_prompt',
-        description: 'Input parameter for the client tool',
-        dynamic_variable: '',
-        constant_value: '',
-        required: true
-      }
-    ],
+    parameters: {
+      type: 'object',
+      description: 'Parameters for the client tool',
+      properties: {}
+    },
     dynamic_variables: {
       dynamic_variable_placeholders: {}
     }
