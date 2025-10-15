@@ -55,8 +55,8 @@ const commands: Command[][] = [
       description: "List all local agents",
     },
     {
-      name: "delete <agent_id>",
-      description: "Delete agent locally and from ElevenLabs",
+      name: "delete [agent_id]",
+      description: "Delete agent (use --all to delete all agents)",
     },
     {
       name: "status",
@@ -86,10 +86,6 @@ const commands: Command[][] = [
           name: "",
           description: "",
         },
-        {
-          name: "--dry-run",
-          description: "Preview changes without executing",
-        },
       ],
     },
   ],
@@ -101,6 +97,10 @@ const commands: Command[][] = [
     {
       name: "add-client-tool <name>",
       description: "Add a new client tool",
+    },
+    {
+      name: "delete-tool [tool_id]",
+      description: "Delete tool (use --all to delete all tools)",
     },
     {
       name: "push-tools",
@@ -115,6 +115,10 @@ const commands: Command[][] = [
     {
       name: "add-test <name>",
       description: "Add a new test",
+    },
+    {
+      name: "delete-test [test_id]",
+      description: "Delete test (use --all to delete all tests)",
     },
     {
       name: "push-tests",
