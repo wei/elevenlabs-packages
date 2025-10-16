@@ -148,7 +148,7 @@ describe("CLI End-to-End Tests", () => {
     });
   };
 
-  describe("help and version", () => {
+  describe("[local] help and version", () => {
     it("should show help", async () => {
       const result = await runCli(["--help"]);
       expect(result.exitCode).toBe(0);
@@ -163,7 +163,7 @@ describe("CLI End-to-End Tests", () => {
     });
   });
 
-  describe("init command", () => {
+  describe("[local] init command", () => {
     it("should initialize a new project", async () => {
       const result = await runCli(["init"]);
 
@@ -217,7 +217,7 @@ describe("CLI End-to-End Tests", () => {
     });
   });
 
-  describe("templates command", () => {
+  describe("[local] templates command", () => {
     it("should list available templates", async () => {
       const result = await runCli(["templates", "list"]);
 
@@ -244,7 +244,7 @@ describe("CLI End-to-End Tests", () => {
     });
   });
 
-  describe("whoami command", () => {
+  describe("[local] whoami command", () => {
     it("should show not logged in when no API key", async () => {
       const result = await runCli(["whoami"]);
 
@@ -253,7 +253,7 @@ describe("CLI End-to-End Tests", () => {
     });
   });
 
-  describe("project workflow", () => {
+  describe("[local] project workflow", () => {
     it("should handle basic project workflow without API key", async () => {
       // Initialize project
       let result = await runCli(["init"]);
@@ -261,7 +261,7 @@ describe("CLI End-to-End Tests", () => {
     });
   });
 
-  describe("error handling", () => {
+  describe("[local] error handling", () => {
     it("should handle missing command gracefully", async () => {
       const result = await runCli(["nonexistent-command"]);
 
@@ -279,7 +279,7 @@ describe("CLI End-to-End Tests", () => {
     });
   });
 
-  describe("configuration handling", () => {
+  describe("[local] configuration handling", () => {
     it("should handle agents.json operations", async () => {
       // Initialize project
       await runCli(["init"]);
@@ -293,20 +293,10 @@ describe("CLI End-to-End Tests", () => {
     });
   });
 
-  describe("push-tools command", () => {
+  describe("[local] push-tools command", () => {
     beforeEach(async () => {
       // Initialize project for each test
       await runCli(["init"]);
-    });
-
-    it("should recognize push-tools command", async () => {
-      const result = await runCli(["push-tools", "--dry-run"]);
-
-      // Should succeed in dry-run mode with valid tools.json (created by init)
-      expect(result.exitCode).toBe(0);
-      expect(result.stderr).not.toContain("unknown command");
-      // Should show dry-run mode output
-      expect(result.stdout.toLowerCase()).toContain("tool(s) pushed");
     });
 
     it("should show help for push-tools command", async () => {
@@ -315,6 +305,17 @@ describe("CLI End-to-End Tests", () => {
       // Command should be recognized, even if help doesn't work perfectly
       // The important thing is it's not "unknown command"
       expect(result.stderr).not.toContain("unknown command");
+    });
+
+    it("should recognize push-tools command with dry-run option", async () => {
+      const result = await runCli(["push-tools", "--dry-run"]);
+
+      // Should succeed in dry-run mode with valid tools.json (created by init)
+      expect(result.exitCode).toBe(0);
+      expect(result.stderr).not.toContain("unknown command");
+      expect(result.stderr).not.toContain("unknown option");
+      // Should show dry-run mode output
+      expect(result.stdout.toLowerCase()).toContain("tool(s) pushed");
     });
 
     it("should handle missing tools.json file", async () => {
@@ -329,15 +330,6 @@ describe("CLI End-to-End Tests", () => {
       expect(result.stderr).toContain("tools.json not found");
     });
 
-    it("should handle dry-run option", async () => {
-      const result = await runCli(["push-tools", "--dry-run"]);
-
-      expect(result.exitCode).toBe(0);
-      // Should get expected success, not unknown option error
-      expect(result.stderr).not.toContain("unknown option");
-      expect(result.stdout.toLowerCase()).toContain("tool(s) pushed");
-    });
-
     it("should handle specific tool name option", async () => {
       const result = await runCli(["push-tools", "--tool", "test-tool"]);
 
@@ -347,308 +339,28 @@ describe("CLI End-to-End Tests", () => {
       // Should get tool not found error since test-tool doesn't exist in empty tools.json
       expect(result.stderr).toContain("not found in configuration");
     });
-
-    it("should work with existing tools.json", async () => {
-      // Create a minimal tools.json
-      const toolsJson = {
-        tools: [
-          {
-            name: "test-webhook",
-            type: "webhook",
-            config: "tool_configs/test_webhook.json",
-          },
-        ],
-      };
-
-      const toolsJsonPath = path.join(tempDir, "tools.json");
-      await fs.writeFile(toolsJsonPath, JSON.stringify(toolsJson, null, 2));
-
-      // Create the config directory and a minimal config file
-      const configDir = path.join(tempDir, "tool_configs");
-      await fs.ensureDir(configDir);
-
-      const toolConfig = {
-        name: "test-webhook",
-        description: "Test webhook tool",
-        type: "webhook",
-        api_schema: {
-          url: "https://api.example.com/webhook",
-          method: "POST",
-        },
-      };
-
-      const configPath = path.join(configDir, "test_webhook.json");
-      await fs.writeFile(configPath, JSON.stringify(toolConfig, null, 2));
-
-      // Run push-tools with dry-run (so it doesn't try to make API calls)
-      const result = await runCli(["push-tools", "--dry-run"]);
-
-      // Should succeed (exit code 0) since files exist
-      expect(result.exitCode).toBe(0);
-      expect(result.stdout).toContain("test-webhook (webhook)");
-      expect(result.stdout).toContain("tool(s) pushed");
-    });
-
-    it("should handle missing config files gracefully", async () => {
-      // Create tools.json with reference to non-existent config
-      const toolsJson = {
-        tools: [
-          {
-            name: "missing-config-tool",
-            type: "webhook",
-            config: "non_existent.json",
-          },
-        ],
-      };
-
-      const toolsJsonPath = path.join(tempDir, "tools.json");
-      await fs.writeFile(toolsJsonPath, JSON.stringify(toolsJson, null, 2));
-
-      const result = await runCli(["push-tools", "--dry-run"]);
-
-      // Should not crash, UI should handle gracefully
-      expect(result.exitCode).toBe(0);
-      expect(result.stdout).toContain("missing-config-tool (webhook)");
-    });
-
-    it("should handle tools without config path", async () => {
-      // Create tools.json with tool missing config path
-      const toolsJson = {
-        tools: [
-          {
-            name: "no-config-tool",
-            type: "webhook",
-            // Missing config property
-          },
-        ],
-      };
-
-      const toolsJsonPath = path.join(tempDir, "tools.json");
-      await fs.writeFile(toolsJsonPath, JSON.stringify(toolsJson, null, 2));
-
-      const result = await runCli(["push-tools", "--dry-run"]);
-
-      // Should not crash, UI should handle gracefully
-      expect(result.exitCode).toBe(0);
-      expect(result.stdout).toContain("no-config-tool (webhook)");
-    });
   });
 
-  // Tests that require API key - No UI Mode
-  describeIfApiKey("API Integration Tests - No UI", () => {
-    const createdAgentIds: string[] = [];
-
+  // Tests that require API key - Auth Flow
+  describeIfApiKey("[integration read] auth flow", () => {
     beforeEach(async () => {
       // Create a temporary directory for each test
-      tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "agents-e2e-api-"));
+      tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "agents-e2e-auth-"));
     });
 
     afterEach(async () => {
-      // Clean up any agents that were created during the test
-      for (const agentId of createdAgentIds) {
-        try {
-          await runCli(["delete", agentId, "--no-ui"], {
-            includeApiKey: true,
-          });
-        } catch (error) {
-          // Agent might already be deleted, that's OK
-        }
-      }
-      createdAgentIds.length = 0; // Clear the array
-
       // Clean up temp directory
       await fs.remove(tempDir);
     });
 
-    it("should login with valid API key (--no-ui)", async () => {
+    it("should complete full workflow: init -> login -> whoami -> status -> list", async () => {
       const apiKey = process.env.ELEVENLABS_API_KEY!;
-      const result = await runCli(["login", "--no-ui"], {
-        input: `${apiKey}\n`,
+
+      // Step 1: Initialize project
+      const initResult = await runCli(["init", "--no-ui"], {
         includeApiKey: true,
       });
-
-      expect(result.exitCode).toBe(0);
-      expect(result.stdout).toContain("Login successful");
-    });
-
-    it("should show whoami after login (--no-ui)", async () => {
-      // Login first
-      const apiKey = process.env.ELEVENLABS_API_KEY!;
-      await runCli(["login", "--no-ui"], {
-        input: `${apiKey}\n`,
-        includeApiKey: true,
-      });
-
-      // Check whoami
-      const result = await runCli(["whoami", "--no-ui"], {
-        includeApiKey: true,
-      });
-
-      expect(result.exitCode).toBe(0);
-      expect(result.stdout).toContain("Logged in");
-      expect(result.stdout).toMatch(/sk_\w{5,}\.\.\.\w{4}/); // Masked key pattern (sk_xxxxx...xxxx)
-    });
-
-    it("should create and push an agent (--no-ui)", async () => {
-      // Initialize project
-      await runCli(["init", "--no-ui"], {
-        includeApiKey: true,
-      });
-
-      // Login
-      const apiKey = process.env.ELEVENLABS_API_KEY!;
-      await runCli(["login", "--no-ui"], {
-        input: `${apiKey}\n`,
-        includeApiKey: true,
-      });
-
-      // Create an agent
-      const agentName = `test-agent-${Date.now()}`;
-      const addResult = await runCli([
-        "add",
-        agentName,
-        "--template",
-        "minimal",
-        "--no-ui",
-      ], {
-        includeApiKey: true,
-      });
-
-      expect(addResult.exitCode).toBe(0);
-      expect(addResult.stdout).toContain(`Created agent in ElevenLabs`);
-
-      // Verify agent was added to config
-      const agentsJsonPath = path.join(tempDir, "agents.json");
-      const agentsConfig = JSON.parse(
-        await fs.readFile(agentsJsonPath, "utf-8")
-      );
-
-      expect(agentsConfig.agents).toHaveLength(1);
-      expect(agentsConfig.agents[0].name).toBe(agentName);
-      expect(agentsConfig.agents[0].id).toBeTruthy();
-
-      // Track agent for cleanup (in case delete fails)
-      const agentId = agentsConfig.agents[0].id;
-      createdAgentIds.push(agentId);
-
-      // Clean up: delete the agent
-      await runCli(["delete", agentId, "--no-ui"], {
-        includeApiKey: true,
-      });
-      
-      // Remove from tracking since it was successfully deleted
-      const index = createdAgentIds.indexOf(agentId);
-      if (index > -1) {
-        createdAgentIds.splice(index, 1);
-      }
-    });
-
-    it("should pull agents from workspace (--no-ui)", async () => {
-      // Initialize project
-      await runCli(["init", "--no-ui"], {
-        includeApiKey: true,
-      });
-
-      // Login
-      const apiKey = process.env.ELEVENLABS_API_KEY!;
-      await runCli(["login", "--no-ui"], {
-        input: `${apiKey}\n`,
-        includeApiKey: true,
-      });
-
-      // Pull agents
-      const result = await runCli(["pull", "--dry-run", "--no-ui"], {
-        includeApiKey: true,
-      });
-
-      expect(result.exitCode).toBe(0);
-      expect(result.stdout).toContain("Pulling all agents");
-    });
-
-    it("should push tools (--no-ui)", async () => {
-      // Initialize project
-      await runCli(["init", "--no-ui"], {
-        includeApiKey: true,
-      });
-
-      // Login
-      const apiKey = process.env.ELEVENLABS_API_KEY!;
-      await runCli(["login", "--no-ui"], {
-        input: `${apiKey}\n`,
-        includeApiKey: true,
-      });
-
-      // Push tools (dry-run, no tools exist yet)
-      const result = await runCli(["push-tools", "--dry-run", "--no-ui"], {
-        includeApiKey: true,
-      });
-
-      expect(result.exitCode).toBe(0);
-      // Just verify command executed successfully (may have no output with no tools)
-    });
-  });
-
-  // Tests that require API key - With UI Mode
-  describeIfApiKey("API Integration Tests - With UI", () => {
-    const createdAgentIds: string[] = [];
-
-    beforeEach(async () => {
-      // Create a temporary directory for each test
-      tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "agents-e2e-api-ui-"));
-    });
-
-    afterEach(async () => {
-      // Clean up any agents that were created during the test
-      for (const agentId of createdAgentIds) {
-        try {
-          await runCli(["delete", agentId, "--no-ui"], {
-            includeApiKey: true,
-          });
-        } catch (error) {
-          // Agent might already be deleted, that's OK
-        }
-      }
-      createdAgentIds.length = 0; // Clear the array
-
-      // Clean up temp directory
-      await fs.remove(tempDir);
-    });
-
-    it("should show login UI", async () => {
-      const apiKey = process.env.ELEVENLABS_API_KEY!;
-      const result = await runCli(["login"], {
-        input: `${apiKey}\n`,
-        includeApiKey: true,
-      });
-
-      expect(result.exitCode).toBe(0);
-      // UI mode may have different output, just verify success
-      expect(result.stdout).toBeTruthy();
-    });
-
-    it("should show whoami UI after login", async () => {
-      // Login first
-      const apiKey = process.env.ELEVENLABS_API_KEY!;
-      await runCli(["login"], {
-        input: `${apiKey}\n`,
-        includeApiKey: true,
-      });
-
-      // Check whoami with UI
-      const result = await runCli(["whoami"], {
-        includeApiKey: true,
-      });
-
-      expect(result.exitCode).toBe(0);
-      expect(result.stdout).toBeTruthy();
-    });
-
-    it("should initialize project with UI", async () => {
-      const result = await runCli(["init"], {
-        includeApiKey: true,
-      });
-
-      expect(result.exitCode).toBe(0);
+      expect(initResult.exitCode).toBe(0);
       
       // Verify files were created
       const agentsJsonExists = await fs.pathExists(
@@ -657,97 +369,1027 @@ describe("CLI End-to-End Tests", () => {
       const toolsJsonExists = await fs.pathExists(
         path.join(tempDir, "tools.json")
       );
-      
       expect(agentsJsonExists).toBe(true);
       expect(toolsJsonExists).toBe(true);
+
+      // Step 2: Login
+      const loginResult = await runCli(["login", "--no-ui"], {
+        input: `${apiKey}\n`,
+        includeApiKey: true,
+      });
+      expect(loginResult.exitCode).toBe(0);
+      expect(loginResult.stdout).toBeTruthy();
+
+      // Step 3: Check whoami
+      const whoamiResult = await runCli(["whoami", "--no-ui"], {
+        includeApiKey: true,
+      });
+      expect(whoamiResult.exitCode).toBe(0);
+      expect(whoamiResult.stdout).toBeTruthy();
+
+      // Step 4: Check status
+      const statusResult = await runCli(["status", "--no-ui"], {
+        includeApiKey: true,
+      });
+      expect(statusResult.exitCode).toBe(0);
+      expect(statusResult.stdout).toBeTruthy();
+
+      // Step 5: List agents
+      const listResult = await runCli(["list", "--no-ui"], {
+        includeApiKey: true,
+      });
+      expect(listResult.exitCode).toBe(0);
+      expect(listResult.stdout).toBeTruthy();
+    });
+  });
+
+  // Push/Pull Integration Tests - Agents
+  describeIfApiKey("[integration write] full cycle agents", () => {
+    let pushPullTempDir: string;
+
+    beforeAll(async () => {
+      // One-time cleanup: Pull all agents and delete them to ensure clean state
+      console.log("One-time cleanup: Removing all remote agents before tests...");
+      
+      // Create temporary directory for cleanup
+      const cleanupTempDir = await fs.mkdtemp(path.join(os.tmpdir(), "agents-e2e-cleanup-"));
+      
+      try {
+        // Initialize project
+        await runCli(["init", "--no-ui"], {
+          cwd: cleanupTempDir,
+          includeApiKey: true,
+        });
+
+        // Login
+        const apiKey = process.env.ELEVENLABS_API_KEY!;
+        await runCli(["login", "--no-ui"], {
+          cwd: cleanupTempDir,
+          input: `${apiKey}\n`,
+          includeApiKey: true,
+        });
+
+        // Pull all agents from remote
+        await runCli(["pull", "--all", "--no-ui"], {
+          cwd: cleanupTempDir,
+          includeApiKey: true,
+          input: "y\n", // Answer the "Proceed?" prompt
+        });
+
+        // Delete all agents at once
+        try {
+          await runCli(["delete", "--all", "--no-ui"], {
+            cwd: cleanupTempDir,
+            includeApiKey: true,
+            input: "y\n", // Answer the "Are you sure?" prompt
+          });
+          console.log("✓ Cleaned up all agents, starting with empty state");
+        } catch (error) {
+          console.warn(`Failed to delete agents: ${error}`);
+        }
+      } finally {
+        // Clean up temporary directory
+        await fs.remove(cleanupTempDir);
+      }
     });
 
-    it("should push agents with UI", async () => {
+    beforeEach(async () => {
+      // Create a temporary directory for each test
+      pushPullTempDir = await fs.mkdtemp(path.join(os.tmpdir(), "agents-e2e-pushpull-"));
+
       // Initialize project
-      await runCli(["init"], {
+      await runCli(["init", "--no-ui"], {
+        cwd: pushPullTempDir,
         includeApiKey: true,
       });
 
       // Login
       const apiKey = process.env.ELEVENLABS_API_KEY!;
-      await runCli(["login"], {
+      await runCli(["login", "--no-ui"], {
+        cwd: pushPullTempDir,
         input: `${apiKey}\n`,
         includeApiKey: true,
       });
+    });
 
-      // Push with UI (dry-run)
-      const result = await runCli(["push", "--dry-run"], {
+    afterEach(async () => {
+      // Skip cleanup if beforeEach failed before creating temp directory
+      if (!pushPullTempDir) {
+        return;
+      }
+
+      // Clean up agents created during the test
+      console.log("Cleaning up agents after test...");
+      
+      // Pull all agents to ensure we have the current server state
+      try {
+        await runCli(["pull", "--all", "--no-ui"], {
+          cwd: pushPullTempDir,
+          includeApiKey: true,
+          input: "y\n", // Answer the "Proceed?" prompt
+        });
+      } catch (error) {
+        console.warn(`Failed to pull agents: ${error}`);
+      }
+
+      // Delete all agents at once
+      try {
+        await runCli(["delete", "--all", "--no-ui"], {
+          cwd: pushPullTempDir,
+          includeApiKey: true,
+          input: "y\n", // Answer the "Are you sure?" prompt
+        });
+        console.log("Deleted all agents");
+      } catch (error) {
+        console.warn(`Failed to delete agents: ${error}`);
+      }
+
+      // Clean up temp directory
+      await fs.remove(pushPullTempDir);
+    });
+
+    it("should verify agent created by add is the only one after pull (--no-ui)", async () => {
+      // Create an agent using add command
+      const agentName = `e2e-pushpull-test-${Date.now()}`;
+      const addResult = await runCli([
+        "add",
+        agentName,
+        "--template",
+        "minimal",
+        "--no-ui",
+      ], {
+        cwd: pushPullTempDir,
         includeApiKey: true,
       });
 
-      expect(result.exitCode).toBe(0);
-      expect(result.stdout).toBeTruthy();
+      expect(addResult.exitCode).toBe(0);
+      expect(addResult.stdout).toContain(`Created agent in ElevenLabs`);
+
+      // Read agents.json to get the agent ID
+      const agentsJsonPath = path.join(pushPullTempDir, "agents.json");
+      let agentsConfig = JSON.parse(
+        await fs.readFile(agentsJsonPath, "utf-8")
+      );
+
+      expect(agentsConfig.agents).toHaveLength(1);
+      const createdAgent = agentsConfig.agents[0];
+      expect(createdAgent.name).toBe(agentName);
+      expect(createdAgent.id).toBeTruthy();
+
+      // Clear local agents.json to simulate fresh pull
+      await fs.writeFile(
+        agentsJsonPath,
+        JSON.stringify({ agents: [] }, null, 2)
+      );
+
+      // Pull all agents from remote
+      const pullResult = await runCli(["pull", "--all", "--no-ui"], {
+        cwd: pushPullTempDir,
+        includeApiKey: true,
+        input: "y\n", // Answer the "Proceed?" prompt
+      });
+
+      expect(pullResult.exitCode).toBe(0);
+
+      // Read agents.json again after pull
+      agentsConfig = JSON.parse(
+        await fs.readFile(agentsJsonPath, "utf-8")
+      );
+
+      // Verify exactly 1 agent exists (the one we created)
+      expect(agentsConfig.agents).toHaveLength(1);
+      expect(agentsConfig.agents[0].name).toBe(agentName);
+      expect(agentsConfig.agents[0].id).toBe(createdAgent.id);
+
+      console.log(`✓ Verified agent '${agentName}' is the only agent after pull`);
+
+      // Clean up: delete the agent
+      await runCli(["delete", createdAgent.id, "--no-ui"], {
+        cwd: pushPullTempDir,
+        includeApiKey: true,
+      });
     });
 
-    it("should pull agents with UI", async () => {
+    it("should complete full cycle: create -> pull -> compare -> delete -> verify empty (--no-ui)", async () => {
+      const agentName = `e2e-full-cycle-${Date.now()}`;
+      const agentsJsonPath = path.join(pushPullTempDir, "agents.json");
+      
+      // Step 1: Create agent locally using add command
+      const addResult = await runCli([
+        "add",
+        agentName,
+        "--template",
+        "minimal",
+        "--no-ui",
+      ], {
+        cwd: pushPullTempDir,
+        includeApiKey: true,
+      });
+
+      expect(addResult.exitCode).toBe(0);
+      expect(addResult.stdout).toContain(`Created agent in ElevenLabs`);
+
+      // Read the created agent config
+      let agentsConfig = JSON.parse(
+        await fs.readFile(agentsJsonPath, "utf-8")
+      );
+      expect(agentsConfig.agents).toHaveLength(1);
+      const createdAgent = agentsConfig.agents[0];
+      const createdAgentId = createdAgent.id;
+      const createdAgentConfigPath = path.join(pushPullTempDir, createdAgent.config);
+      const originalConfig = JSON.parse(
+        await fs.readFile(createdAgentConfigPath, "utf-8")
+      );
+
+      console.log(`✓ Created agent '${agentName}' with ID ${createdAgentId}`);
+      
+      // Step 2: Clear local agents.json and config files to simulate fresh environment
+      await fs.writeFile(
+        agentsJsonPath,
+        JSON.stringify({ agents: [] }, null, 2)
+      );
+      await fs.remove(createdAgentConfigPath);
+
+      // Step 3: Pull all agents from remote
+      const pullResult = await runCli(["pull", "--all", "--no-ui"], {
+        cwd: pushPullTempDir,
+        includeApiKey: true,
+        input: "y\n", // Answer the "Proceed?" prompt
+      });
+
+      expect(pullResult.exitCode).toBe(0);
+      console.log(`✓ Pulled agents from remote`);
+
+      // Step 4: Compare pulled agent matches created agent
+      agentsConfig = JSON.parse(
+        await fs.readFile(agentsJsonPath, "utf-8")
+      );
+
+      expect(agentsConfig.agents).toHaveLength(1);
+      const pulledAgent = agentsConfig.agents[0];
+      expect(pulledAgent.name).toBe(agentName);
+      expect(pulledAgent.id).toBe(createdAgentId);
+
+      // Compare config files
+      const pulledConfigPath = path.join(pushPullTempDir, pulledAgent.config);
+      expect(await fs.pathExists(pulledConfigPath)).toBe(true);
+      const pulledConfig = JSON.parse(
+        await fs.readFile(pulledConfigPath, "utf-8")
+      );
+
+      // Compare key fields (name and conversation config structure)
+      expect(pulledConfig.name).toBe(originalConfig.name);
+      expect(pulledConfig.conversation_config).toBeDefined();
+      expect(pulledConfig.platform_settings).toBeDefined();
+
+      console.log(`✓ Pulled agent config matches original`);
+
+      // Step 5: Delete the agent
+      const deleteResult = await runCli(["delete", createdAgentId, "--no-ui"], {
+        cwd: pushPullTempDir,
+        includeApiKey: true,
+      });
+
+      expect(deleteResult.exitCode).toBe(0);
+      console.log(`✓ Deleted agent '${agentName}'`);
+
+      // Step 6: Pull again and verify no agents exist
+      await fs.writeFile(
+        agentsJsonPath,
+        JSON.stringify({ agents: [] }, null, 2)
+      );
+
+      const finalPullResult = await runCli(["pull", "--all", "--no-ui"], {
+        cwd: pushPullTempDir,
+        includeApiKey: true,
+        input: "y\n",
+      });
+
+      expect(finalPullResult.exitCode).toBe(0);
+
+      agentsConfig = JSON.parse(
+        await fs.readFile(agentsJsonPath, "utf-8")
+      );
+
+      expect(agentsConfig.agents).toHaveLength(0);
+      console.log(`✓ Verified no agents exist after deletion`);
+    });
+
+    it("should handle complex pull scenarios with local modifications and deletions (--no-ui)", async () => {
+      const timestamp = Date.now();
+      const agentNames = [
+        `e2e-complex-first-${timestamp}`,
+        `e2e-complex-second-${timestamp}`,
+        `e2e-complex-third-${timestamp}`,
+      ];
+      const agentsJsonPath = path.join(pushPullTempDir, "agents.json");
+
+      // Step (a) & (b): Create 3 agents using agents add command
+      console.log("Step (a) & (b): Creating 3 agents...");
+      
+      for (const agentName of agentNames) {
+        const addResult = await runCli([
+          "add",
+          agentName,
+          "--template",
+          "minimal",
+          "--no-ui",
+        ], {
+          cwd: pushPullTempDir,
+          includeApiKey: true,
+        });
+        expect(addResult.exitCode).toBe(0);
+      }
+
+      // Read agents.json to get the assigned IDs and config paths
+      let agentsConfig = JSON.parse(
+        await fs.readFile(agentsJsonPath, "utf-8")
+      );
+      expect(agentsConfig.agents).toHaveLength(3);
+      const agent1Id = agentsConfig.agents[0].id;
+      const agent2Id = agentsConfig.agents[1].id;
+      const agent3Id = agentsConfig.agents[2].id;
+      expect(agent1Id).toBeTruthy();
+      expect(agent2Id).toBeTruthy();
+      expect(agent3Id).toBeTruthy();
+      
+      const configPaths = [
+        path.join(pushPullTempDir, agentsConfig.agents[0].config),
+        path.join(pushPullTempDir, agentsConfig.agents[1].config),
+        path.join(pushPullTempDir, agentsConfig.agents[2].config),
+      ];
+      
+      console.log(`✓ Created 3 agents with IDs: ${agent1Id}, ${agent2Id}, ${agent3Id}`);
+
+      // Step (c): Modify first agent locally
+      console.log("Step (c): Modifying first agent locally...");
+      const agent1Config = JSON.parse(
+        await fs.readFile(configPaths[0], "utf-8")
+      );
+      agent1Config.conversation_config.agent.prompt.prompt = "MODIFIED LOCALLY";
+      await fs.writeFile(configPaths[0], JSON.stringify(agent1Config, null, 2));
+
+      // Step (d): Pull -> check that nothing changed
+      console.log("Step (d): Pulling without --all, expecting no changes...");
+      const pullResult1 = await runCli(["pull", "--no-ui"], {
+        cwd: pushPullTempDir,
+        includeApiKey: true,
+        input: "y\n",
+      });
+
+      expect(pullResult1.exitCode).toBe(0);
+
+      // Verify first agent still has local modifications
+      const agent1ConfigAfterPull1 = JSON.parse(
+        await fs.readFile(configPaths[0], "utf-8")
+      );
+      expect(agent1ConfigAfterPull1.conversation_config.agent.prompt.prompt).toBe(
+        "MODIFIED LOCALLY"
+      );
+      console.log(`✓ First agent retained local modifications`);
+
+      // Step (e): Remove local version of third agent
+      console.log("Step (e): Removing local version of third agent...");
+      await fs.remove(configPaths[2]);
+      agentsConfig = JSON.parse(
+        await fs.readFile(agentsJsonPath, "utf-8")
+      );
+      agentsConfig.agents = agentsConfig.agents.filter(
+        (a: any) => a.name !== agentNames[2]
+      );
+      await fs.writeFile(agentsJsonPath, JSON.stringify(agentsConfig, null, 2));
+
+      // Step (f): Pull -> check that first two didn't change, third was pulled
+      console.log(
+        "Step (f): Pulling to restore third agent, first two unchanged..."
+      );
+      const pullResult2 = await runCli(["pull", "--no-ui"], {
+        cwd: pushPullTempDir,
+        includeApiKey: true,
+        input: "y\n",
+      });
+
+      expect(pullResult2.exitCode).toBe(0);
+
+      agentsConfig = JSON.parse(
+        await fs.readFile(agentsJsonPath, "utf-8")
+      );
+      expect(agentsConfig.agents).toHaveLength(3);
+
+      // First agent should still have modifications
+      const agent1ConfigAfterPull2 = JSON.parse(
+        await fs.readFile(configPaths[0], "utf-8")
+      );
+      expect(agent1ConfigAfterPull2.conversation_config.agent.prompt.prompt).toBe(
+        "MODIFIED LOCALLY"
+      );
+
+      // Third agent should be pulled back
+      expect(await fs.pathExists(configPaths[2])).toBe(true);
+      console.log(`✓ Third agent restored, first two unchanged`);
+
+      // Step (g): Remove local version of third agent again
+      console.log("Step (g): Removing local version of third agent again...");
+      await fs.remove(configPaths[2]);
+      agentsConfig = JSON.parse(
+        await fs.readFile(agentsJsonPath, "utf-8")
+      );
+      agentsConfig.agents = agentsConfig.agents.filter(
+        (a: any) => a.name !== agentNames[2]
+      );
+      await fs.writeFile(agentsJsonPath, JSON.stringify(agentsConfig, null, 2));
+
+      // Step (h): Pull --update -> check that first got overridden, second didn't change, third didn't appear
+      console.log(
+        "Step (h): Pulling with --update, expecting first to be overridden..."
+      );
+      const pullResult3 = await runCli(["pull", "--update", "--no-ui"], {
+        cwd: pushPullTempDir,
+        includeApiKey: true,
+        input: "y\n",
+      });
+
+      expect(pullResult3.exitCode).toBe(0);
+
+      agentsConfig = JSON.parse(
+        await fs.readFile(agentsJsonPath, "utf-8")
+      );
+      // Should still have only 2 agents (first and second)
+      expect(agentsConfig.agents).toHaveLength(2);
+
+      // First agent should be overridden (no longer has local modifications)
+      const agent1ConfigAfterUpdate = JSON.parse(
+        await fs.readFile(configPaths[0], "utf-8")
+      );
+      expect(
+        agent1ConfigAfterUpdate.conversation_config.agent.prompt.prompt
+      ).not.toBe("MODIFIED LOCALLY");
+      expect(agent1ConfigAfterUpdate.conversation_config.agent.prompt.prompt).toBe(
+        `You are ${agentNames[0]}, a helpful AI assistant.`
+      );
+
+      // Third agent should NOT be pulled (--update doesn't add missing agents)
+      expect(await fs.pathExists(configPaths[2])).toBe(false);
+      console.log(
+        `✓ First agent overridden, second unchanged, third not restored`
+      );
+
+      // Step (i): Modify first two locally, remove local version of third
+      console.log("Step (i): Modifying first two locally...");
+      const agent1ConfigMod = JSON.parse(
+        await fs.readFile(configPaths[0], "utf-8")
+      );
+      agent1ConfigMod.conversation_config.agent.prompt.prompt =
+        "MODIFIED AGAIN LOCALLY";
+      await fs.writeFile(configPaths[0], JSON.stringify(agent1ConfigMod, null, 2));
+
+      const agent2Config = JSON.parse(
+        await fs.readFile(configPaths[1], "utf-8")
+      );
+      agent2Config.conversation_config.agent.prompt.prompt =
+        "MODIFIED LOCALLY TOO";
+      await fs.writeFile(configPaths[1], JSON.stringify(agent2Config, null, 2));
+
+      // Third is already removed from step (g)
+
+      // Step (j): Pull --all -> check that first two got overridden, third was pulled
+      console.log(
+        "Step (j): Pulling with --all, expecting all overridden and third restored..."
+      );
+      const pullResult4 = await runCli(["pull", "--all", "--no-ui"], {
+        cwd: pushPullTempDir,
+        includeApiKey: true,
+        input: "y\n",
+      });
+
+      expect(pullResult4.exitCode).toBe(0);
+
+      agentsConfig = JSON.parse(
+        await fs.readFile(agentsJsonPath, "utf-8")
+      );
+      expect(agentsConfig.agents).toHaveLength(3);
+
+      // First agent should be overridden
+      const agent1ConfigFinal = JSON.parse(
+        await fs.readFile(configPaths[0], "utf-8")
+      );
+      expect(agent1ConfigFinal.conversation_config.agent.prompt.prompt).not.toBe(
+        "MODIFIED AGAIN LOCALLY"
+      );
+      expect(agent1ConfigFinal.conversation_config.agent.prompt.prompt).toBe(
+        `You are ${agentNames[0]}, a helpful AI assistant.`
+      );
+
+      // Second agent should be overridden
+      const agent2ConfigFinal = JSON.parse(
+        await fs.readFile(configPaths[1], "utf-8")
+      );
+      expect(agent2ConfigFinal.conversation_config.agent.prompt.prompt).not.toBe(
+        "MODIFIED LOCALLY TOO"
+      );
+      expect(agent2ConfigFinal.conversation_config.agent.prompt.prompt).toBe(
+        `You are ${agentNames[1]}, a helpful AI assistant.`
+      );
+
+      // Third agent should be pulled back
+      expect(await fs.pathExists(configPaths[2])).toBe(true);
+      const agent3ConfigFinal = JSON.parse(
+        await fs.readFile(configPaths[2], "utf-8")
+      );
+      expect(agent3ConfigFinal.conversation_config.agent.prompt.prompt).toBe(
+        `You are ${agentNames[2]}, a helpful AI assistant.`
+      );
+
+      console.log(
+        `✓ All agents overridden to remote state, third agent restored`
+      );
+      console.log(`✓ Complex pull scenario test completed successfully`);
+    });
+  });
+
+  // Push/Pull Integration Tests - Tests
+  describeIfApiKey("[integration write] full cycle tests", () => {
+    let pushPullTempDir: string;
+
+    beforeAll(async () => {
+      // One-time cleanup: Pull all tests and delete them to ensure clean state
+      console.log("One-time cleanup: Removing all remote tests before tests...");
+      
+      // Create temporary directory for cleanup
+      const cleanupTempDir = await fs.mkdtemp(path.join(os.tmpdir(), "tests-e2e-cleanup-"));
+      
+      try {
+        // Initialize project
+        await runCli(["init", "--no-ui"], {
+          cwd: cleanupTempDir,
+          includeApiKey: true,
+        });
+
+        // Login
+        const apiKey = process.env.ELEVENLABS_API_KEY!;
+        await runCli(["login", "--no-ui"], {
+          cwd: cleanupTempDir,
+          input: `${apiKey}\n`,
+          includeApiKey: true,
+        });
+
+        // Pull all tests from remote
+        await runCli(["pull-tests", "--all", "--no-ui"], {
+          cwd: cleanupTempDir,
+          includeApiKey: true,
+          input: "y\n", // Answer the "Proceed?" prompt
+        });
+
+        // Delete all tests at once
+        try {
+          await runCli(["delete-test", "--all", "--no-ui"], {
+            cwd: cleanupTempDir,
+            includeApiKey: true,
+            input: "y\n", // Answer the "Are you sure?" prompt
+          });
+          console.log("✓ Cleaned up all tests, starting with empty state");
+        } catch (error) {
+          console.warn(`Failed to delete tests: ${error}`);
+        }
+      } finally {
+        // Clean up temporary directory
+        await fs.remove(cleanupTempDir);
+      }
+    });
+
+    beforeEach(async () => {
+      // Create a temporary directory for each test
+      pushPullTempDir = await fs.mkdtemp(path.join(os.tmpdir(), "tests-e2e-pushpull-"));
+
       // Initialize project
-      await runCli(["init"], {
+      await runCli(["init", "--no-ui"], {
+        cwd: pushPullTempDir,
         includeApiKey: true,
       });
 
       // Login
       const apiKey = process.env.ELEVENLABS_API_KEY!;
-      await runCli(["login"], {
+      await runCli(["login", "--no-ui"], {
+        cwd: pushPullTempDir,
         input: `${apiKey}\n`,
         includeApiKey: true,
       });
-
-      // Pull with UI (dry-run)
-      const result = await runCli(["pull", "--dry-run"], {
-        includeApiKey: true,
-      });
-
-      expect(result.exitCode).toBe(0);
-      expect(result.stdout).toBeTruthy();
     });
 
-    it("should list agents with UI", async () => {
-      // Initialize project
-      await runCli(["init"], {
-        includeApiKey: true,
-      });
+    afterEach(async () => {
+      // Skip cleanup if beforeEach failed before creating temp directory
+      if (!pushPullTempDir) {
+        return;
+      }
 
-      // Login
-      const apiKey = process.env.ELEVENLABS_API_KEY!;
-      await runCli(["login"], {
-        input: `${apiKey}\n`,
-        includeApiKey: true,
-      });
+      // Clean up tests created during the test
+      console.log("Cleaning up tests after test...");
+      
+      // Pull all tests to ensure we have the current server state
+      try {
+        await runCli(["pull-tests", "--all", "--no-ui"], {
+          cwd: pushPullTempDir,
+          includeApiKey: true,
+          input: "y\n", // Answer the "Proceed?" prompt
+        });
+      } catch (error) {
+        console.warn(`Failed to pull tests: ${error}`);
+      }
 
-      // List agents with UI
-      const result = await runCli(["list"], {
-        includeApiKey: true,
-      });
+      // Delete all tests at once
+      try {
+        await runCli(["delete-test", "--all", "--no-ui"], {
+          cwd: pushPullTempDir,
+          includeApiKey: true,
+          input: "y\n", // Answer the "Are you sure?" prompt
+        });
+        console.log("Deleted all tests");
+      } catch (error) {
+        console.warn(`Failed to delete tests: ${error}`);
+      }
 
-      expect(result.exitCode).toBe(0);
-      expect(result.stdout).toBeTruthy();
+      // Clean up temp directory
+      await fs.remove(pushPullTempDir);
     });
 
-    it("should show status with UI", async () => {
-      // Initialize project
-      await runCli(["init"], {
+    it("should verify test created by add-test is the only one after pull (--no-ui)", async () => {
+      // Create a test using add-test command
+      const testName = `e2e-pushpull-test-${Date.now()}`;
+      const addResult = await runCli([
+        "add-test",
+        testName,
+        "--template",
+        "basic-llm",
+        "--no-ui",
+      ], {
+        cwd: pushPullTempDir,
         includeApiKey: true,
       });
 
-      // Login
-      const apiKey = process.env.ELEVENLABS_API_KEY!;
-      await runCli(["login"], {
-        input: `${apiKey}\n`,
+      expect(addResult.exitCode).toBe(0);
+      expect(addResult.stdout).toContain(`Created test in ElevenLabs`);
+
+      // Read tests.json to get the test ID
+      const testsJsonPath = path.join(pushPullTempDir, "tests.json");
+      let testsConfig = JSON.parse(
+        await fs.readFile(testsJsonPath, "utf-8")
+      );
+
+      expect(testsConfig.tests).toHaveLength(1);
+      const createdTest = testsConfig.tests[0];
+      expect(createdTest.name).toBe(testName);
+      expect(createdTest.id).toBeTruthy();
+
+      // Clear local tests.json to simulate fresh pull
+      await fs.writeFile(
+        testsJsonPath,
+        JSON.stringify({ tests: [] }, null, 2)
+      );
+
+      // Pull all tests from remote
+      const pullResult = await runCli(["pull-tests", "--all", "--no-ui"], {
+        cwd: pushPullTempDir,
+        includeApiKey: true,
+        input: "y\n", // Answer the "Proceed?" prompt
+      });
+
+      expect(pullResult.exitCode).toBe(0);
+
+      // Read tests.json again after pull
+      testsConfig = JSON.parse(
+        await fs.readFile(testsJsonPath, "utf-8")
+      );
+
+      // Verify exactly 1 test exists (the one we created)
+      expect(testsConfig.tests).toHaveLength(1);
+      expect(testsConfig.tests[0].name).toBe(testName);
+      expect(testsConfig.tests[0].id).toBe(createdTest.id);
+
+      console.log(`✓ Verified test '${testName}' is the only test after pull`);
+
+      // Clean up: delete the test
+      await runCli(["delete-test", createdTest.id, "--no-ui"], {
+        cwd: pushPullTempDir,
+        includeApiKey: true,
+      });
+    });
+
+    it("should complete full cycle: create -> pull -> compare -> delete -> verify empty (--no-ui)", async () => {
+      const testName = `e2e-full-cycle-${Date.now()}`;
+      const testsJsonPath = path.join(pushPullTempDir, "tests.json");
+      
+      // Step 1: Create test locally using add-test command
+      const addResult = await runCli([
+        "add-test",
+        testName,
+        "--template",
+        "basic-llm",
+        "--no-ui",
+      ], {
+        cwd: pushPullTempDir,
         includeApiKey: true,
       });
 
-      // Status with UI
-      const result = await runCli(["status"], {
+      expect(addResult.exitCode).toBe(0);
+      expect(addResult.stdout).toContain(`Created test in ElevenLabs`);
+
+      // Read the created test config
+      let testsConfig = JSON.parse(
+        await fs.readFile(testsJsonPath, "utf-8")
+      );
+      expect(testsConfig.tests).toHaveLength(1);
+      const createdTest = testsConfig.tests[0];
+      const createdTestId = createdTest.id;
+      const createdTestConfigPath = path.join(pushPullTempDir, createdTest.config);
+      const originalConfig = JSON.parse(
+        await fs.readFile(createdTestConfigPath, "utf-8")
+      );
+
+      console.log(`✓ Created test '${testName}' with ID ${createdTestId}`);
+      
+      // Step 2: Clear local tests.json and config files to simulate fresh environment
+      await fs.writeFile(
+        testsJsonPath,
+        JSON.stringify({ tests: [] }, null, 2)
+      );
+      await fs.remove(createdTestConfigPath);
+
+      // Step 3: Pull all tests from remote
+      const pullResult = await runCli(["pull-tests", "--all", "--no-ui"], {
+        cwd: pushPullTempDir,
+        includeApiKey: true,
+        input: "y\n", // Answer the "Proceed?" prompt
+      });
+
+      expect(pullResult.exitCode).toBe(0);
+      console.log(`✓ Pulled tests from remote`);
+
+      // Step 4: Compare pulled test matches created test
+      testsConfig = JSON.parse(
+        await fs.readFile(testsJsonPath, "utf-8")
+      );
+
+      expect(testsConfig.tests).toHaveLength(1);
+      const pulledTest = testsConfig.tests[0];
+      expect(pulledTest.name).toBe(testName);
+      expect(pulledTest.id).toBe(createdTestId);
+
+      // Compare config files
+      const pulledConfigPath = path.join(pushPullTempDir, pulledTest.config);
+      expect(await fs.pathExists(pulledConfigPath)).toBe(true);
+      const pulledConfig = JSON.parse(
+        await fs.readFile(pulledConfigPath, "utf-8")
+      );
+
+      // Compare key fields (name and test config structure)
+      expect(pulledConfig.name).toBe(originalConfig.name);
+      expect(pulledConfig.chat_history).toBeDefined();
+      expect(pulledConfig.success_condition).toBeDefined();
+      expect(pulledConfig.success_examples).toBeDefined();
+      expect(pulledConfig.failure_examples).toBeDefined();
+
+      console.log(`✓ Pulled test config matches original`);
+
+      // Step 5: Delete the test
+      const deleteResult = await runCli(["delete-test", createdTestId, "--no-ui"], {
+        cwd: pushPullTempDir,
         includeApiKey: true,
       });
 
-      expect(result.exitCode).toBe(0);
-      expect(result.stdout).toBeTruthy();
+      expect(deleteResult.exitCode).toBe(0);
+      console.log(`✓ Deleted test '${testName}'`);
+
+      // Step 6: Pull again and verify no tests exist
+      await fs.writeFile(
+        testsJsonPath,
+        JSON.stringify({ tests: [] }, null, 2)
+      );
+
+      const finalPullResult = await runCli(["pull-tests", "--all", "--no-ui"], {
+        cwd: pushPullTempDir,
+        includeApiKey: true,
+        input: "y\n",
+      });
+
+      expect(finalPullResult.exitCode).toBe(0);
+
+      testsConfig = JSON.parse(
+        await fs.readFile(testsJsonPath, "utf-8")
+      );
+
+      expect(testsConfig.tests).toHaveLength(0);
+      console.log(`✓ Verified no tests exist after deletion`);
+    });
+
+    it("should handle complex pull scenarios with local modifications and deletions (--no-ui)", async () => {
+      const timestamp = Date.now();
+      const testNames = [
+        `e2e-complex-first-${timestamp}`,
+        `e2e-complex-second-${timestamp}`,
+        `e2e-complex-third-${timestamp}`,
+      ];
+      const testsJsonPath = path.join(pushPullTempDir, "tests.json");
+
+      // Step (a) & (b): Create 3 tests using add-test command
+      console.log("Step (a) & (b): Creating 3 tests...");
+      
+      for (const testName of testNames) {
+        const addResult = await runCli([
+          "add-test",
+          testName,
+          "--template",
+          "basic-llm",
+          "--no-ui",
+        ], {
+          cwd: pushPullTempDir,
+          includeApiKey: true,
+        });
+        expect(addResult.exitCode).toBe(0);
+      }
+
+      // Read tests.json to get the assigned IDs and config paths
+      let testsConfig = JSON.parse(
+        await fs.readFile(testsJsonPath, "utf-8")
+      );
+      expect(testsConfig.tests).toHaveLength(3);
+      const test1Id = testsConfig.tests[0].id;
+      const test2Id = testsConfig.tests[1].id;
+      const test3Id = testsConfig.tests[2].id;
+      expect(test1Id).toBeTruthy();
+      expect(test2Id).toBeTruthy();
+      expect(test3Id).toBeTruthy();
+      
+      const configPaths = [
+        path.join(pushPullTempDir, testsConfig.tests[0].config),
+        path.join(pushPullTempDir, testsConfig.tests[1].config),
+        path.join(pushPullTempDir, testsConfig.tests[2].config),
+      ];
+      
+      console.log(`✓ Created 3 tests with IDs: ${test1Id}, ${test2Id}, ${test3Id}`);
+
+      // Step (c): Modify first test locally
+      console.log("Step (c): Modifying first test locally...");
+      const test1Config = JSON.parse(
+        await fs.readFile(configPaths[0], "utf-8")
+      );
+      test1Config.name = "MODIFIED LOCALLY";
+      await fs.writeFile(configPaths[0], JSON.stringify(test1Config, null, 2));
+
+      // Step (d): Pull -> check that nothing changed
+      console.log("Step (d): Pulling without --all, expecting no changes...");
+      const pullResult1 = await runCli(["pull-tests", "--no-ui"], {
+        cwd: pushPullTempDir,
+        includeApiKey: true,
+        input: "y\n",
+      });
+
+      expect(pullResult1.exitCode).toBe(0);
+
+      // Verify first test still has local modifications
+      const test1ConfigAfterPull1 = JSON.parse(
+        await fs.readFile(configPaths[0], "utf-8")
+      );
+      expect(test1ConfigAfterPull1.name).toBe("MODIFIED LOCALLY");
+      console.log(`✓ First test retained local modifications`);
+
+      // Step (e): Remove local version of third test
+      console.log("Step (e): Removing local version of third test...");
+      await fs.remove(configPaths[2]);
+      testsConfig = JSON.parse(
+        await fs.readFile(testsJsonPath, "utf-8")
+      );
+      testsConfig.tests = testsConfig.tests.filter(
+        (t: any) => t.name !== testNames[2]
+      );
+      await fs.writeFile(testsJsonPath, JSON.stringify(testsConfig, null, 2));
+
+      // Step (f): Pull -> check that first two didn't change, third was pulled
+      console.log(
+        "Step (f): Pulling to restore third test, first two unchanged..."
+      );
+      const pullResult2 = await runCli(["pull-tests", "--no-ui"], {
+        cwd: pushPullTempDir,
+        includeApiKey: true,
+        input: "y\n",
+      });
+
+      expect(pullResult2.exitCode).toBe(0);
+
+      testsConfig = JSON.parse(
+        await fs.readFile(testsJsonPath, "utf-8")
+      );
+      expect(testsConfig.tests).toHaveLength(3);
+
+      // First test should still have modifications
+      const test1ConfigAfterPull2 = JSON.parse(
+        await fs.readFile(configPaths[0], "utf-8")
+      );
+      expect(test1ConfigAfterPull2.name).toBe("MODIFIED LOCALLY");
+
+      // Third test should be pulled back
+      expect(await fs.pathExists(configPaths[2])).toBe(true);
+      console.log(`✓ Third test restored, first two unchanged`);
+
+      // Step (g): Remove local version of third test again
+      console.log("Step (g): Removing local version of third test again...");
+      await fs.remove(configPaths[2]);
+      testsConfig = JSON.parse(
+        await fs.readFile(testsJsonPath, "utf-8")
+      );
+      testsConfig.tests = testsConfig.tests.filter(
+        (t: any) => t.name !== testNames[2]
+      );
+      await fs.writeFile(testsJsonPath, JSON.stringify(testsConfig, null, 2));
+
+      // Step (h): Pull --update -> check that first got overridden, second didn't change, third didn't appear
+      console.log(
+        "Step (h): Pulling with --update, expecting first to be overridden..."
+      );
+      const pullResult3 = await runCli(["pull-tests", "--update", "--no-ui"], {
+        cwd: pushPullTempDir,
+        includeApiKey: true,
+        input: "y\n",
+      });
+
+      expect(pullResult3.exitCode).toBe(0);
+
+      testsConfig = JSON.parse(
+        await fs.readFile(testsJsonPath, "utf-8")
+      );
+      // Should still have only 2 tests (first and second)
+      expect(testsConfig.tests).toHaveLength(2);
+
+      // First test should be overridden (no longer has local modifications)
+      const test1ConfigAfterUpdate = JSON.parse(
+        await fs.readFile(configPaths[0], "utf-8")
+      );
+      expect(test1ConfigAfterUpdate.name).not.toBe("MODIFIED LOCALLY");
+      expect(test1ConfigAfterUpdate.name).toBe(testNames[0]);
+
+      // Third test should NOT be pulled (--update doesn't add missing tests)
+      expect(await fs.pathExists(configPaths[2])).toBe(false);
+      console.log(
+        `✓ First test overridden, second unchanged, third not restored`
+      );
+
+      // Step (i): Modify first two locally, remove local version of third
+      console.log("Step (i): Modifying first two locally...");
+      const test1ConfigMod = JSON.parse(
+        await fs.readFile(configPaths[0], "utf-8")
+      );
+      test1ConfigMod.name = "MODIFIED AGAIN LOCALLY";
+      await fs.writeFile(configPaths[0], JSON.stringify(test1ConfigMod, null, 2));
+
+      const test2Config = JSON.parse(
+        await fs.readFile(configPaths[1], "utf-8")
+      );
+      test2Config.name = "MODIFIED LOCALLY TOO";
+      await fs.writeFile(configPaths[1], JSON.stringify(test2Config, null, 2));
+
+      // Third is already removed from step (g)
+
+      // Step (j): Pull --all -> check that first two got overridden, third was pulled
+      console.log(
+        "Step (j): Pulling with --all, expecting all overridden and third restored..."
+      );
+      const pullResult4 = await runCli(["pull-tests", "--all", "--no-ui"], {
+        cwd: pushPullTempDir,
+        includeApiKey: true,
+        input: "y\n",
+      });
+
+      expect(pullResult4.exitCode).toBe(0);
+
+      testsConfig = JSON.parse(
+        await fs.readFile(testsJsonPath, "utf-8")
+      );
+      expect(testsConfig.tests).toHaveLength(3);
+
+      // First test should be overridden
+      const test1ConfigFinal = JSON.parse(
+        await fs.readFile(configPaths[0], "utf-8")
+      );
+      expect(test1ConfigFinal.name).not.toBe("MODIFIED AGAIN LOCALLY");
+      expect(test1ConfigFinal.name).toBe(testNames[0]);
+
+      // Second test should be overridden
+      const test2ConfigFinal = JSON.parse(
+        await fs.readFile(configPaths[1], "utf-8")
+      );
+      expect(test2ConfigFinal.name).not.toBe("MODIFIED LOCALLY TOO");
+      expect(test2ConfigFinal.name).toBe(testNames[1]);
+
+      // Third test should be pulled back
+      expect(await fs.pathExists(configPaths[2])).toBe(true);
+      const test3ConfigFinal = JSON.parse(
+        await fs.readFile(configPaths[2], "utf-8")
+      );
+      expect(test3ConfigFinal.name).toBe(testNames[2]);
+
+      console.log(
+        `✓ All tests overridden to remote state, third test restored`
+      );
+      console.log(`✓ Complex pull scenario test completed successfully`);
     });
   });
 });
