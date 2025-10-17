@@ -10,6 +10,8 @@ import fs from 'fs-extra';
 interface Agent {
   name: string;
   config: string;
+  id?: string;
+  env: string;
 }
 
 interface ListAgentsViewProps {
@@ -33,8 +35,30 @@ export const ListAgentsView: React.FC<ListAgentsViewProps> = ({ onComplete }) =>
           return;
         }
 
-        const agentsConfig = await readConfig<{ agents: Agent[] }>(agentsConfigPath);
-        setAgents(agentsConfig.agents || []);
+        const agentsConfig = await readConfig<{ agents: { config: string; id?: string; env?: string }[] }>(agentsConfigPath);
+        
+        // Read names from individual config files
+        const agentsWithNames = await Promise.all(
+          (agentsConfig.agents || []).map(async (agentDef) => {
+            let name = 'Unknown Agent';
+            if (agentDef.config && await fs.pathExists(agentDef.config)) {
+              try {
+                const config = await readConfig<any>(agentDef.config);
+                name = config.name || 'Unnamed Agent';
+              } catch (error) {
+                // Keep 'Unknown Agent' if can't read
+              }
+            }
+            return {
+              name,
+              config: agentDef.config,
+              id: agentDef.id,
+              env: agentDef.env || 'prod'
+            };
+          })
+        );
+        
+        setAgents(agentsWithNames);
         setLoading(false);
       } catch (err) {
         setError(err instanceof Error ? err.message : 'Failed to load agents');
@@ -59,6 +83,8 @@ export const ListAgentsView: React.FC<ListAgentsViewProps> = ({ onComplete }) =>
   // Map agents to rows
   const agentRows = agents.map(agent => ({
     name: agent.name,
+    env: agent.env,
+    id: agent.id || 'N/A',
     configPath: agent.config
   }));
 
@@ -112,6 +138,9 @@ export const ListAgentsView: React.FC<ListAgentsViewProps> = ({ onComplete }) =>
                 <Box width={30}>
                   <Text color={theme.colors.text.muted} bold>NAME</Text>
                 </Box>
+                <Box width={10}>
+                  <Text color={theme.colors.text.muted} bold>ENV</Text>
+                </Box>
                 <Box>
                   <Text color={theme.colors.text.muted} bold>CONFIG PATH</Text>
                 </Box>
@@ -127,6 +156,9 @@ export const ListAgentsView: React.FC<ListAgentsViewProps> = ({ onComplete }) =>
                 <Box key={index}>
                   <Box width={30}>
                     <Text color={theme.colors.text.primary}>{row.name}</Text>
+                  </Box>
+                  <Box width={10}>
+                    <Text color={theme.colors.accent.secondary}>{row.env}</Text>
                   </Box>
                   <Box>
                     <Text color={theme.colors.text.muted}>{row.configPath}</Text>

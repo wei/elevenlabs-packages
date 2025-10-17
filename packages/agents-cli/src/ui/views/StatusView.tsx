@@ -16,12 +16,10 @@ interface AgentStatus {
 }
 
 interface StatusViewProps {
-  agentName?: string;
   onComplete?: () => void;
 }
 
 export const StatusView: React.FC<StatusViewProps> = ({ 
-  agentName,
   onComplete 
 }) => {
   const { exit } = useApp();
@@ -44,11 +42,6 @@ export const StatusView: React.FC<StatusViewProps> = ({
 
         // Process each agent
         for (const agentDef of agentsConfig.agents) {
-          // Filter by agent name if specified
-          if (agentName && agentDef.name !== agentName) {
-            continue;
-          }
-
           const configPath = agentDef.config;
           if (!configPath) continue;
           
@@ -59,7 +52,16 @@ export const StatusView: React.FC<StatusViewProps> = ({
           // Get agent ID from index file
           const agentId: string | undefined = (agentDef as any).id;
 
+          // Read agent name from config file
+          let agentName = 'Unknown Agent';
           if (configExists) {
+            try {
+              const config = await readConfig<any>(fullConfigPath);
+              agentName = config.name || 'Unnamed Agent';
+            } catch (error) {
+              // If can't read config, keep "Unknown Agent"
+            }
+
             // Simple status based on whether ID exists
             if (agentId) {
               status = 'created';
@@ -69,7 +71,7 @@ export const StatusView: React.FC<StatusViewProps> = ({
           }
 
           statusList.push({
-            name: agentDef.name,
+            name: agentName,
             configPath,
             configExists,
             agentId,
@@ -97,7 +99,7 @@ export const StatusView: React.FC<StatusViewProps> = ({
     }, 10000); // Show for 10 seconds
 
     return () => clearTimeout(timer);
-  }, [agentName, exit, onComplete]);
+  }, [exit, onComplete]);
 
   const createdCount = agents.filter(a => a.status === 'created').length;
   const notPushedCount = agents.filter(a => a.status === 'not-pushed').length;

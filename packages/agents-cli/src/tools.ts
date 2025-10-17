@@ -18,8 +18,6 @@ export interface WebhookToolSchema {
 }
 
 export interface WebhookTool {
-  // Note: tool_id is now stored in tools.json, not in individual config files
-  tool_id?: string; // @deprecated - for backwards compatibility only
   name: string;
   description: string;
   type: 'webhook';
@@ -74,10 +72,10 @@ export interface ClientTool {
 export type Tool = WebhookTool | ClientTool;
 
 export interface ToolDefinition {
-  name: string;
   type: 'webhook' | 'client';
   config?: string;
   id?: string;
+  env?: string;
 }
 
 export interface ToolsConfig {

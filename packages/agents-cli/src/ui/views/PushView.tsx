@@ -13,6 +13,7 @@ interface PushAgent {
   status: 'pending' | 'checking' | 'pushing' | 'completed' | 'error' | 'skipped';
   message?: string;
   agentId?: string;
+  env: string;
 }
 
 interface PushViewProps {
@@ -93,14 +94,14 @@ export const PushView: React.FC<PushViewProps> = ({
             )
           );
 
-          // Get ElevenLabs client
-          const client = await getElevenLabsClient();
+          // Get ElevenLabs client for this agent's environment
+          const client = await getElevenLabsClient(agent.env);
 
           // Extract config components
           const conversationConfig = agentConfig.conversation_config || {};
           const platformSettings = agentConfig.platform_settings;
           const tags = agentConfig.tags || [];
-          const agentDisplayName = agentConfig.name || agent.name;
+          const agentDisplayName = agentConfig.name || 'Unnamed Agent';
 
           if (!agentId) {
             // Create new agent
@@ -114,7 +115,7 @@ export const PushView: React.FC<PushViewProps> = ({
 
             // Store agent ID in agents.json index file
             const agentsConfig = await readConfig<any>(path.resolve(agentsConfigPath));
-            const agentDef = agentsConfig.agents.find((a: any) => a.name === agent.name);
+            const agentDef = agentsConfig.agents.find((a: any) => a.config === agent.configPath);
             if (agentDef) {
               agentDef.id = newAgentId;
               await writeConfig(path.resolve(agentsConfigPath), agentsConfig);
@@ -201,7 +202,10 @@ export const PushView: React.FC<PushViewProps> = ({
             <Box width={30}>
               <Text color={theme.colors.text.muted} bold>NAME</Text>
             </Box>
-            <Box width={20}>
+            <Box width={10}>
+              <Text color={theme.colors.text.muted} bold>ENV</Text>
+            </Box>
+            <Box width={15}>
               <Text color={theme.colors.text.muted} bold>STATUS</Text>
             </Box>
             <Box>
@@ -244,7 +248,10 @@ export const PushView: React.FC<PushViewProps> = ({
                 <Box width={30}>
                   <Text color={theme.colors.text.primary}>{agent.name}</Text>
                 </Box>
-                <Box width={20}>
+                <Box width={10}>
+                  <Text color={theme.colors.accent.secondary}>{agent.env}</Text>
+                </Box>
+                <Box width={15}>
                   <Text color={statusColor}>{statusText}</Text>
                 </Box>
                 <Box>
