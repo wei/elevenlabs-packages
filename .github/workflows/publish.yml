@@ -130,7 +130,10 @@ jobs:
       - name: Publish package
         run: |
           PACKAGE_PATH="packages/$(echo "$PACKAGE_NAME" | sed 's/@elevenlabs\///')"
-          echo "npm version: $(npm --version)"
+          # Configure pnpm to use local npm v11.6.4 for OIDC support
+          NPM_BIN="$PWD/node_modules/.bin/npm"
+          pnpm config set npm-path "$NPM_BIN"
           cd $PACKAGE_PATH
           # Use pnpm publish (not npm) to handle workspace:* protocol conversion
+          # --provenance enables OIDC authentication (requires npm v11.5.1+)
           pnpm publish --access public --no-git-checks --tag $PUBLISH_TAG --provenance
