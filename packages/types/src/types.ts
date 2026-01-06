@@ -5,6 +5,8 @@ import type * as Generated from "../generated/types/asyncapi-types";
  */
 export type Role = "user" | "agent";
 
+export type AudioAlignmentEvent = Generated.AudioEventAlignment;
+
 /**
  * Current mode of the conversation
  */
@@ -84,6 +86,9 @@ export type Callbacks = {
   ) => void;
   onAgentChatResponsePart?: (
     props: Generated.AgentChatResponsePartClientEvent["text_response_part"]
+  ) => void;
+  onAudioAlignment?: (
+    props: AudioAlignmentEvent
   ) => void;
   // internal debug events, not to be used
   onDebug?: (props: any) => void;

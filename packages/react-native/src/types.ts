@@ -1,6 +1,7 @@
 import type * as Types from "@elevenlabs/types";
 import type {
   AsrInitiationMetadataEvent as AsrMetadataEvent,
+  AudioAlignmentEvent,
   Callbacks,
   ConversationMetadata,
   Mode as ConversationMode,
@@ -108,6 +109,12 @@ export type ConversationMetadataEvent = ConversationMetadata;
 export type AsrInitiationMetadataEvent = AsrMetadataEvent;
 export type AgentChatResponsePartEvent =
   Incoming.AgentChatResponsePartClientEvent;
+export type { AudioAlignmentEvent };
+export type AudioEventWithAlignment = {
+  audio_base_64?: string;
+  event_id: number;
+  alignment?: AudioAlignmentEvent;
+};
 
 // Outgoing event types
 export type PongEvent = Outgoing.PongClientToOrchestratorEvent;

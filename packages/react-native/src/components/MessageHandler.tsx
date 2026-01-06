@@ -7,6 +7,7 @@ import type {
   ClientToolsConfig,
   ClientToolCallEvent,
   ConversationEvent,
+  AudioEventWithAlignment,
 } from "../types";
 import React from "react";
 
@@ -178,9 +179,16 @@ export const MessageHandler = ({
       case "client_tool_call":
         handleClientToolCall(message);
         break;
-      case "audio":
-        callbacksRef.current.onAudio?.(message.audio_event.audio_base_64);
+      case "audio": {
+        const audioEvent = message.audio_event as AudioEventWithAlignment;
+        if (audioEvent.audio_base_64) {
+          callbacksRef.current.onAudio?.(audioEvent.audio_base_64);
+        }
+        if (audioEvent.alignment) {
+          callbacksRef.current.onAudioAlignment?.(audioEvent.alignment);
+        }
         break;
+      }
       case "vad_score":
         callbacksRef.current.onVadScore?.({
           vadScore: message.vad_score_event.vad_score,
