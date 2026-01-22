@@ -13,8 +13,7 @@
     "prepare": "husky install",
     "dev": "turbo dev",
     "clean": "turbo clean",
-    "changeset": "changeset",
-    "publish": "turbo build lint && changeset version && changeset publish"
+    "changeset": "changeset"
   },
   "devDependencies": {
     "@changesets/cli": "^2.29.8",
