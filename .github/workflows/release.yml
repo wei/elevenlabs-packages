@@ -44,6 +44,9 @@ jobs:
       
       - name: Build packages
         run: pnpm turbo build lint
+        
+      - name: Configure pnpm to use another local npm version for OIDC support
+        run: pnpm config set npm-path "$PWD/node_modules/.bin/npm"
 
       - name: Create Release Pull Request
         uses: changesets/action@e0145edc7d9d8679003495b11f87bd8ef63c0cba # v1.5.3
