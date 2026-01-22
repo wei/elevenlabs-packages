@@ -3,6 +3,7 @@
 import preact from "@preact/preset-vite";
 import { defineConfig } from "vitest/config";
 import analyzer from "vite-bundle-analyzer";
+import tailwindcss from "@tailwindcss/vite";
 
 export default defineConfig({
   resolve: {
@@ -22,10 +23,14 @@ export default defineConfig({
       external: id =>
         id.startsWith("preact") ||
         id.startsWith("@preact") ||
-        id.startsWith("@elevenlabs")
+        id.startsWith("@elevenlabs"),
     },
   },
-  plugins: [preact(), ...(process.env.ANALYZE ? [analyzer()] : [])],
+  plugins: [
+    tailwindcss(),
+    preact(),
+    ...(process.env.ANALYZE ? [analyzer()] : []),
+  ],
   test: {
     name: "ConvAI Widget Tests",
     browser: {
