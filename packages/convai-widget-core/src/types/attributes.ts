@@ -41,6 +41,7 @@ export const CustomAttributeList = [
   "text-contents",
   "default-expanded",
   "always-expanded",
+  "dismissible",
   "user-id",
   "use-rtc",
   "collect-feedback",

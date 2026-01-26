@@ -15,6 +15,7 @@ import { PoweredBy } from "./PoweredBy";
 import { useWidgetSize } from "../contexts/widget-size";
 import { cn } from "../utils/cn";
 import { useShadowHost } from "../contexts/shadow-host";
+import { ExpandButton } from "../components/ExpandButton";
 
 const HORIZONTAL = {
   left: "items-start",
@@ -45,8 +46,9 @@ const HIDDEN_STYLE = {
 export const Wrapper = memo(function Wrapper() {
   const config = useWidgetConfig();
   const expanded = useSignal(config.peek().default_expanded);
+  const hidden = useSignal(false);
   const sawError = useSignal(false);
-  const { error } = useConversation();
+  const { error, isDisconnected } = useConversation();
   const terms = useTerms();
   const { variant } = useWidgetSize();
   const expandable = useComputed(
@@ -117,33 +119,63 @@ export const Wrapper = memo(function Wrapper() {
   const isTerms = useComputed(() => state.value === "terms");
   const isConversation = useComputed(() => state.value === "conversation");
 
+  const handleDismiss = () => {
+    hidden.value = true;
+  };
+
+  const handleExpand = () => {
+    hidden.value = false;
+  };
+
+  const showConversation = useComputed(() => isConversation.value && !hidden.value);
+  const showTerms = useComputed(() => isTerms.value && !hidden.value);
+  const showError = useComputed(() => isError.value && !hidden.value);
+  const showPoweredBy = useComputed(() => !hidden.value);
+
+  // Only show dismiss button if dismissible is enabled AND call is not active
+  const showDismiss = useComputed(() => config.value.dismissible && isDisconnected.value);
+
+  // Show expand button when widget is hidden and dismissible is enabled
+  const showExpandButton = useComputed(() => config.value.dismissible && hidden.value);
+
   return (
     <>
-      <InOutTransition initial={false} active={isConversation}>
+      <InOutTransition initial={false} active={showConversation}>
         <Root className={className} style={HIDDEN_STYLE}>
           {config.value.always_expanded ? (
             <Sheet open />
           ) : (
             <>
               {expandable.value && <Sheet open={expanded} />}
-              <Trigger expandable={expandable.value} expanded={expanded} />
+              <Trigger
+                expandable={expandable.value}
+                expanded={expanded}
+                onDismiss={showDismiss.value ? handleDismiss : undefined}
+              />
             </>
           )}
         </Root>
       </InOutTransition>
-      <InOutTransition initial={false} active={isTerms}>
+      <InOutTransition initial={false} active={showTerms}>
         <Root className={className} style={HIDDEN_STYLE}>
           <TermsModal />
         </Root>
       </InOutTransition>
-      <InOutTransition initial={false} active={isError}>
+      <InOutTransition initial={false} active={showError}>
         <Root className={className} style={HIDDEN_STYLE}>
           <ErrorModal sawError={sawError} />
         </Root>
       </InOutTransition>
-      <Root className={poweredByClassName} style={HIDDEN_STYLE}>
-        <PoweredBy />
-      </Root>
+      <InOutTransition initial={false} active={showPoweredBy}>
+        <Root className={poweredByClassName} style={HIDDEN_STYLE}>
+          <PoweredBy />
+        </Root>
+      </InOutTransition>
+      <InOutTransition initial={false} active={showExpandButton}>
+        <Root className={className} style={HIDDEN_STYLE}>
+          <ExpandButton onExpand={handleExpand} />
+        </Root>
+      </InOutTransition>
     </>
   );
 });

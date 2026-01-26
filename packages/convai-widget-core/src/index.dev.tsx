@@ -26,6 +26,7 @@ function Playground() {
   const [textInput, setTextInput] = useState(false);
   const [textOnly, setTextOnly] = useState(false);
   const [alwaysExpanded, setAlwaysExpanded] = useState(false);
+  const [dismissible, setDismissible] = useState(false);
   const [dynamicVariablesStr, setDynamicVariablesStr] = useState("");
   const [expanded, setExpanded] = useState(false);
   const [overrideFirstMessage, setOverrideFirstMessage] = useState(false);
@@ -111,6 +112,14 @@ function Playground() {
           />{" "}
           Always expanded
         </label>
+        <label className="flex items-center gap-1">
+          <input
+            type="checkbox"
+            checked={dismissible}
+            onChange={e => setDismissible(e.currentTarget.checked)}
+          />{" "}
+          Dismissible
+        </label>
         <label className="flex flex-col">
           Dynamic variables (i.e., new-line separated name=value)
           <textarea
@@ -181,6 +190,7 @@ function Playground() {
           mic-muting={JSON.stringify(micMuting)}
           override-text-only={JSON.stringify(textOnly)}
           always-expanded={JSON.stringify(alwaysExpanded)}
+          dismissible={JSON.stringify(dismissible)}
           dynamic-variables={JSON.stringify(dynamicVariables)}
           server-location={location}
           override-first-message={
